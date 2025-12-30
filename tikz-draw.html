@@ -578,6 +578,8 @@
     <div class="header">
         <h1>✏️ TikZ Draw</h1>
         <div class="header-buttons">
+            <button id="undoBtn" class="btn" onclick="app.undo()" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+            <button id="redoBtn" class="btn" onclick="app.redo()" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
             <button class="btn" onclick="app.loadProject()">📂 Open</button>
             <button class="btn" onclick="app.saveProject()">💾 Save</button>
             <button class="btn btn-primary" onclick="app.showExport()">📤 Export TikZ</button>
@@ -1293,7 +1295,12 @@ class TikZDrawApp {
         this.selectedObject = null;
         this.selectedSubIndex = -1;
         this.customColors = {};
-        
+
+        // Undo/Redo state
+        this.undoStack = [];
+        this.redoStack = [];
+        this.maxHistory = 50;
+
         // LaTeX rendering cache
         this.latexCache = new Map(); // text -> {svg, width, height}
         this.latexRenderQueue = [];
@@ -1313,7 +1320,8 @@ class TikZDrawApp {
         this.setupEventListeners();
         this.resize();
         this.render();
-        
+        this.updateUndoRedoButtons();
+
         // Wait for MathJax to be ready
         this.initMathJax();
     }
@@ -1631,6 +1639,9 @@ class TikZDrawApp {
     // ========================================================================
     
     addObject(obj) {
+        // Save state for undo
+        this.saveState();
+
         // Keep coordinates grouped at the top of the list
         if (obj instanceof TikZCoordinate) {
             // Find the last coordinate index
@@ -1650,8 +1661,11 @@ class TikZDrawApp {
         this.render();
         return obj;
     }
-    
+
     removeObject(obj) {
+        // Save state for undo
+        this.saveState();
+
         const idx = this.objects.indexOf(obj);
         if (idx >= 0) {
             this.objects.splice(idx, 1);
@@ -2013,6 +2027,21 @@ class TikZDrawApp {
         if (e.key === 'e' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             this.showExport();
+            return;
+        }
+
+        // Ctrl+Z to undo
+        if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+            e.preventDefault();
+            this.undo();
+            return;
+        }
+
+        // Ctrl+Shift+Z or Ctrl+Y to redo
+        if (((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+            (e.key === 'y' && (e.ctrlKey || e.metaKey))) {
+            e.preventDefault();
+            this.redo();
             return;
         }
     }
@@ -3631,13 +3660,22 @@ class TikZDrawApp {
 
     handlePropertyChange(el) {
         if (!this.selectedObject) return;
-        
+
         const prop = el.dataset.prop;
         if (!prop) return;
-        
+
         let value = el.type === 'checkbox' ? el.checked : el.value;
         if (el.type === 'number') value = parseFloat(value);
-        
+
+        // Save state for undo (but not on every keystroke for textarea)
+        // Only save on 'change' events, not 'input' events
+        if (el.tagName !== 'TEXTAREA' || el.dataset.lastSaved !== value) {
+            this.saveState();
+            if (el.tagName === 'TEXTAREA') {
+                el.dataset.lastSaved = value;
+            }
+        }
+
         // Clear LaTeX cache if text-related property changed
         if (prop === 'text' || prop === 'label' || prop === 'fontSize') {
             // Remove old cached version
@@ -3681,6 +3719,9 @@ class TikZDrawApp {
         if (!this.selectedObject || !this.selectedObject.nodes) {
             return;
         }
+
+        // Save state for undo
+        this.saveState();
 
         const node = new TikZEmbeddedNode('label', 0.5, 'above');
         this.selectedObject.nodes.push(node);
@@ -3807,6 +3848,9 @@ class TikZDrawApp {
     saveNode() {
         if (!this.editingNode) return;
 
+        // Save state for undo
+        this.saveState();
+
         // Clear old cached render (all variations of text/color/fontSize)
         const oldText = this.editingNode.text;
         for (const key of this.latexCache.keys()) {
@@ -3828,7 +3872,10 @@ class TikZDrawApp {
     
     deleteNode() {
         if (!this.editingNode || !this.editingNodeParent) return;
-        
+
+        // Save state for undo
+        this.saveState();
+
         const idx = this.editingNodeParent.nodes.indexOf(this.editingNode);
         if (idx >= 0) {
             this.editingNodeParent.nodes.splice(idx, 1);
@@ -4136,8 +4183,11 @@ class TikZDrawApp {
     reorderObjects(draggedId, targetId) {
         const draggedIdx = this.objects.findIndex(o => o.id === draggedId);
         const targetIdx = this.objects.findIndex(o => o.id === targetId);
-        
+
         if (draggedIdx >= 0 && targetIdx >= 0) {
+            // Save state for undo
+            this.saveState();
+
             const [dragged] = this.objects.splice(draggedIdx, 1);
             this.objects.splice(targetIdx, 0, dragged);
             this.updateObjectList();
@@ -4338,6 +4388,9 @@ class TikZDrawApp {
             this.showToast('A color with this name already exists', 'error');
             return;
         }
+
+        // Save state for undo
+        this.saveState();
 
         this.customColors[name] = hex;
 
@@ -4657,7 +4710,10 @@ class TikZDrawApp {
             this.showToast('Invalid project file: no objects found', 'error');
             return;
         }
-        
+
+        // Save state for undo (so user can undo the file load)
+        this.saveState();
+
         // Reset
         this.objects = [];
         this.selectedObject = null;
@@ -4809,6 +4865,93 @@ class TikZDrawApp {
         }
         
         return obj;
+    }
+
+    // Undo/Redo functionality
+    saveState() {
+        // Don't save if we're in the middle of a multi-step tool operation
+        if (this.tempPoints.length > 0) return;
+
+        // Limit history size
+        if (this.undoStack.length >= this.maxHistory) {
+            this.undoStack.shift();
+        }
+
+        // Deep copy current state
+        const state = {
+            objects: this.objects.map(o => this.serializeObject(o)),
+            selectedId: this.selectedObject?.id,
+            customColors: { ...this.customColors }
+        };
+
+        this.undoStack.push(state);
+        this.redoStack = []; // Clear redo stack when new action taken
+
+        this.updateUndoRedoButtons();
+    }
+
+    undo() {
+        if (this.undoStack.length === 0) return;
+
+        // Save current state to redo stack
+        const currentState = {
+            objects: this.objects.map(o => this.serializeObject(o)),
+            selectedId: this.selectedObject?.id,
+            customColors: { ...this.customColors }
+        };
+        this.redoStack.push(currentState);
+
+        // Restore previous state
+        const previousState = this.undoStack.pop();
+        this.loadState(previousState);
+
+        this.updateUndoRedoButtons();
+    }
+
+    redo() {
+        if (this.redoStack.length === 0) return;
+
+        // Save current to undo
+        const currentState = {
+            objects: this.objects.map(o => this.serializeObject(o)),
+            selectedId: this.selectedObject?.id,
+            customColors: { ...this.customColors }
+        };
+        this.undoStack.push(currentState);
+
+        // Restore from redo stack
+        const nextState = this.redoStack.pop();
+        this.loadState(nextState);
+
+        this.updateUndoRedoButtons();
+    }
+
+    loadState(state) {
+        // Reconstruct objects from serialized data
+        this.objects = state.objects.map(data => this.deserializeObject(data)).filter(o => o !== null);
+
+        // Restore custom colors
+        this.customColors = { ...state.customColors };
+
+        // Restore selection
+        this.selectedObject = this.objects.find(o => o.id === state.selectedId) || null;
+        this.selectedSubIndex = -1;
+
+        this.render();
+        this.updatePropertiesPanel();
+        this.updateObjectList();
+    }
+
+    updateUndoRedoButtons() {
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+
+        if (undoBtn) {
+            undoBtn.disabled = this.undoStack.length === 0;
+        }
+        if (redoBtn) {
+            redoBtn.disabled = this.redoStack.length === 0;
+        }
     }
 }
 
