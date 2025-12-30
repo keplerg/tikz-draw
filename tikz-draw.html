@@ -1,0 +1,4823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikZ Draw</title>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true
+            },
+            svg: {
+                fontCache: 'global'
+            },
+            startup: {
+                ready: () => {
+                    MathJax.startup.defaultReady();
+                    if (window.app) {
+                        window.app.mathJaxReady = true;
+                        window.app.render();
+                    }
+                }
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* Header */
+        .header {
+            background: #2d2d2d;
+            border-bottom: 1px solid #404040;
+            padding: 8px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .header h1 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #61afef;
+        }
+        
+        .header-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn {
+            background: #404040;
+            border: 1px solid #505050;
+            color: #e0e0e0;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .btn:hover { background: #505050; }
+        .btn-primary { background: #4a7c4e; border-color: #5a9c5e; }
+        .btn-primary:hover { background: #5a9c5e; }
+        .btn-danger { background: #5a3333; border-color: #7a4444; }
+        .btn-danger:hover { background: #7a4444; }
+        
+        /* Main Layout */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Toolbar */
+        .toolbar {
+            width: 60px;
+            background: #252526;
+            border-right: 1px solid #404040;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        
+        .tool {
+            width: 44px;
+            height: 44px;
+            background: #333333;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #a0a0a0;
+            font-size: 9px;
+            gap: 2px;
+        }
+        
+        .tool:hover { background: #404040; color: #e0e0e0; }
+        .tool.active { background: #094771; border-color: #1177bb; color: #fff; }
+        .tool-icon { font-size: 18px; line-height: 1; }
+        .tool-divider { height: 1px; background: #404040; margin: 6px 0; }
+        
+        /* Canvas */
+        .canvas-container {
+            flex: 1;
+            background: #1a1a1a;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        /* Right Panel */
+        .right-panel {
+            width: 280px;
+            background: #252526;
+            border-left: 1px solid #404040;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .panel-section {
+            border-bottom: 1px solid #404040;
+        }
+        
+        .panel-header {
+            padding: 10px 12px;
+            background: #2d2d2d;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #e0e0e0;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .panel-content {
+            padding: 12px;
+        }
+        
+        .property-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .property-row:last-child { margin-bottom: 0; }
+        
+        .property-label {
+            width: 75px;
+            font-size: 12px;
+            color: #a0a0a0;
+            flex-shrink: 0;
+        }
+        
+        .property-input {
+            flex: 1;
+        }
+        
+        .property-input input,
+        .property-input select,
+        .property-input textarea {
+            width: 100%;
+            background: #333333;
+            border: 1px solid #404040;
+            color: #e0e0e0;
+            padding: 5px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        
+        .property-input textarea {
+            font-family: 'Consolas', 'Monaco', monospace;
+            resize: vertical;
+            min-height: 28px;
+        }
+        
+        .property-input input:focus,
+        .property-input select:focus,
+        .property-input textarea:focus {
+            outline: none;
+            border-color: #61afef;
+        }
+        
+        .color-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .color-swatch {
+            width: 22px;
+            height: 22px;
+            border-radius: 3px;
+            border: 1px solid #505050;
+            flex-shrink: 0;
+        }
+        
+        .color-row select { flex: 1; }
+        
+        .btn-small {
+            background: #333;
+            border: 1px solid #505050;
+            color: #e0e0e0;
+            width: 22px;
+            height: 22px;
+            border-radius: 3px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        
+        .btn-small:hover { background: #444; color: #ccc; }
+        
+        .radio-group {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        
+        .radio-option input { accent-color: #61afef; }
+        
+        .coord-inputs {
+            display: flex;
+            gap: 6px;
+        }
+        
+        .coord-inputs input { width: 50%; }
+        
+        .latex-preview {
+            background: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 3px;
+            padding: 6px 8px;
+            min-height: 32px;
+            display: flex;
+            align-items: center;
+            color: #ccc;
+            font-size: 12px;
+        }
+        
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-row input { accent-color: #61afef; }
+        
+        /* Object List */
+        .object-list-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        
+        .object-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+        
+        .object-item {
+            padding: 4px 8px 4px 4px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            user-select: none;
+            border: 1px solid transparent;
+        }
+        
+        .object-item:hover { background: #2a2a2a; }
+        .object-item.selected { background: #094771; }
+        .object-item.drag-over { border-top: 2px solid #61afef; }
+        .object-item.dragging { opacity: 0.4; }
+        
+        .drag-handle {
+            color: #e0e0e0;
+            cursor: grab;
+            font-size: 10px;
+            padding: 2px;
+        }
+        
+        .drag-handle:hover { color: #888; }
+        
+        .expand-btn {
+            width: 16px;
+            font-size: 10px;
+            color: #e0e0e0;
+            cursor: pointer;
+            text-align: center;
+        }
+        
+        .expand-btn:hover { color: #ccc; }
+        
+        .obj-icon {
+            width: 18px;
+            text-align: center;
+            flex-shrink: 0;
+            color: #999;
+        }
+        
+        .obj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        
+        .subobject {
+            padding-left: 28px;
+            font-size: 11px;
+            color: #999;
+        }
+        
+        .subobject:hover { color: #ccc; }
+        .subobject.selected { background: #0a3d5c; color: #ccc; }
+        
+        /* Status Bar */
+        .status-bar {
+            background: #007acc;
+            padding: 3px 12px;
+            font-size: 12px;
+            display: flex;
+            gap: 20px;
+            flex-shrink: 0;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        /* Color Picker Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.visible { display: flex; }
+        
+        .modal {
+            background: #2d2d2d;
+            border: 1px solid #505050;
+            border-radius: 8px;
+            padding: 16px;
+            width: 300px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .modal-header h3 {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 20px;
+            line-height: 1;
+        }
+        
+        .modal-close:hover { color: #ccc; }
+        
+        .color-picker-area {
+            width: 100%;
+            height: 150px;
+            background: linear-gradient(to top, #000, transparent),
+                        linear-gradient(to right, #fff, #f00);
+            border-radius: 4px;
+            margin-bottom: 12px;
+            position: relative;
+            cursor: crosshair;
+        }
+        
+        .color-picker-cursor {
+            width: 12px;
+            height: 12px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            position: absolute;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        
+        .hue-slider {
+            width: 100%;
+            height: 16px;
+            background: linear-gradient(to right, 
+                #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .hue-cursor {
+            width: 6px;
+            height: 20px;
+            background: #fff;
+            border-radius: 3px;
+            position: absolute;
+            top: -2px;
+            transform: translateX(-50%);
+            box-shadow: 0 0 3px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        
+        .color-inputs-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .color-input-group {
+            flex: 1;
+        }
+        
+        .color-input-group label {
+            display: block;
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        
+        .color-input-group input {
+            width: 100%;
+            background: #333;
+            border: 1px solid #505050;
+            color: #e0e0e0;
+            padding: 4px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        
+        .color-preview-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 16px 0;
+        }
+        
+        .color-preview-swatch {
+            width: 48px;
+            height: 48px;
+            border-radius: 4px;
+            border: 1px solid #505050;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
+        
+        /* Export Modal */
+        .export-textarea {
+            width: 100%;
+            height: 400px;
+            background: #1e1e1e;
+            border: 1px solid #404040;
+            color: #abb2bf;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            padding: 12px;
+            border-radius: 4px;
+            resize: none;
+        }
+        
+        .modal.large {
+            width: 600px;
+        }
+        
+        /* No selection message */
+        .no-selection {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* Toast notifications */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #2d2d2d;
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 6px;
+            border: 1px solid #505050;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            font-size: 14px;
+            z-index: 10000;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .toast.success {
+            border-left: 4px solid #98c379;
+        }
+
+        .toast.error {
+            border-left: 4px solid #e06c75;
+        }
+
+        .toast.info {
+            border-left: 4px solid #61afef;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✏️ TikZ Draw</h1>
+        <div class="header-buttons">
+            <button class="btn" onclick="app.loadProject()">📂 Open</button>
+            <button class="btn" onclick="app.saveProject()">💾 Save</button>
+            <button class="btn btn-primary" onclick="app.showExport()">📤 Export TikZ</button>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div class="toolbar">
+            <div class="tool active" data-tool="select" title="Select (V)">
+                <span class="tool-icon">↖</span>
+                <span>Select</span>
+            </div>
+            <div class="tool" data-tool="point" title="Point (P)">
+                <span class="tool-icon">•</span>
+                <span>Point</span>
+            </div>
+            <div class="tool" data-tool="line" title="Line (L)">
+                <span class="tool-icon">─</span>
+                <span>Line</span>
+            </div>
+            <div class="tool" data-tool="vector" title="Vector (A)">
+                <span class="tool-icon">→</span>
+                <span>Vector</span>
+            </div>
+            <div class="tool-divider"></div>
+            <div class="tool" data-tool="circle" title="Circle (C)">
+                <span class="tool-icon">○</span>
+                <span>Circle</span>
+            </div>
+            <div class="tool" data-tool="arc" title="Arc (R)">
+                <span class="tool-icon">⌒</span>
+                <span>Arc</span>
+            </div>
+            <div class="tool" data-tool="rect" title="Rectangle (B)">
+                <span class="tool-icon">▭</span>
+                <span>Rect</span>
+            </div>
+            <div class="tool-divider"></div>
+            <div class="tool" data-tool="label" title="Label (T)">
+                <span class="tool-icon">A</span>
+                <span>Label</span>
+            </div>
+            <div class="tool" data-tool="path" title="Path (H)">
+                <span class="tool-icon">⟋</span>
+                <span>Path</span>
+            </div>
+            <div class="tool" data-tool="bezier" title="Bezier (Q)">
+                <span class="tool-icon">∿</span>
+                <span>Curve</span>
+            </div>
+            <div class="tool-divider"></div>
+            <div class="tool" data-tool="grid" title="Grid (G)">
+                <span class="tool-icon">#</span>
+                <span>Grid</span>
+            </div>
+        </div>
+        
+        <div class="canvas-container" id="canvasContainer">
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="right-panel">
+            <div class="panel-section">
+                <div class="panel-header">Properties</div>
+                <div class="panel-content" id="propertiesPanel">
+                    <div class="no-selection">No object selected</div>
+                </div>
+            </div>
+            
+            <div class="panel-section object-list-container">
+                <div class="panel-header">
+                    Objects
+                    <span style="font-weight:normal;text-transform:none;font-size:10px;color:#eee;">drag to reorder</span>
+                </div>
+                <div class="object-list" id="objectList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div class="status-item">
+            <span>📍</span>
+            <span id="cursorPos">(0.00, 0.00)</span>
+        </div>
+        <div class="status-item">
+            <span>📐</span>
+            <span>Snap: <span id="snapSize">0.25</span></span>
+        </div>
+        <div class="status-item">
+            <span>🔍</span>
+            <span>Zoom: <span id="zoomLevel">100</span>%</span>
+        </div>
+        <div class="status-item">
+            <span>📊</span>
+            <span><span id="objectCount">0</span> objects</span>
+        </div>
+        <div class="status-item" style="margin-left:auto;">
+            <span>💡</span>
+            <span id="statusTip">Click to place points</span>
+        </div>
+    </div>
+    
+    <!-- Color Picker Modal -->
+    <div class="modal-overlay" id="colorPickerModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Custom Color</h3>
+                <button class="modal-close" onclick="app.closeColorPicker()">×</button>
+            </div>
+            <div class="color-picker-area" id="colorPickerArea">
+                <div class="color-picker-cursor" id="colorPickerCursor"></div>
+            </div>
+            <div class="hue-slider" id="hueSlider">
+                <div class="hue-cursor" id="hueCursor"></div>
+            </div>
+            <div class="color-inputs-row">
+                <div class="color-input-group">
+                    <label>R</label>
+                    <input type="number" id="colorR" min="0" max="255" value="255">
+                </div>
+                <div class="color-input-group">
+                    <label>G</label>
+                    <input type="number" id="colorG" min="0" max="255" value="0">
+                </div>
+                <div class="color-input-group">
+                    <label>B</label>
+                    <input type="number" id="colorB" min="0" max="255" value="0">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Hex:</span>
+                <div class="property-input">
+                    <input type="text" id="colorHex" value="#FF0000">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input">
+                    <input type="text" id="colorName" placeholder="mycolor">
+                </div>
+            </div>
+            <div class="color-preview-row">
+                <div class="color-preview-swatch" id="colorPreview" style="background:#f00;"></div>
+                <span style="font-size:12px;color:#888;">Preview</span>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn" onclick="app.closeColorPicker()">Cancel</button>
+                <button class="btn btn-primary" onclick="app.addCustomColor()">Add Color</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal large">
+            <div class="modal-header">
+                <h3>Export TikZ</h3>
+                <button class="modal-close" onclick="app.closeExport()">×</button>
+            </div>
+            <textarea class="export-textarea" id="exportCode" readonly></textarea>
+            <div class="modal-buttons">
+                <button class="btn" onclick="app.copyExport()">📋 Copy to Clipboard</button>
+                <button class="btn" onclick="app.downloadExport()">💾 Download .tex</button>
+                <button class="btn btn-primary" onclick="app.closeExport()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Embedded Node Editor Modal -->
+    <div class="modal-overlay" id="nodeEditorModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Edit Label</h3>
+                <button class="modal-close" onclick="app.closeNodeEditor()">×</button>
+            </div>
+            <div class="panel-content">
+                <div class="property-row">
+                    <span class="property-label">Text:</span>
+                    <div class="property-input">
+                        <textarea id="nodeText" rows="2">label</textarea>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">Preview:</span>
+                    <div class="property-input">
+                        <div class="latex-preview" id="nodeLatexPreview">label</div>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">Position:</span>
+                    <div class="property-input">
+                        <input type="range" id="nodePosition" min="0" max="1" step="0.05" value="0.5" style="width:100%;">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:#888;">
+                            <span>start (0)</span>
+                            <span id="nodePosValue">0.5</span>
+                            <span>end (1)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">Anchor:</span>
+                    <div class="property-input">
+                        <select id="nodeAnchor">
+                            <option value="above">above</option>
+                            <option value="below">below</option>
+                            <option value="left">left</option>
+                            <option value="right">right</option>
+                            <option value="above left">above left</option>
+                            <option value="above right">above right</option>
+                            <option value="below left">below left</option>
+                            <option value="below right">below right</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">Font Size:</span>
+                    <div class="property-input">
+                        <select id="nodeFontSize">
+                            <option value="tiny">tiny</option>
+                            <option value="scriptsize">scriptsize</option>
+                            <option value="footnotesize">footnotesize</option>
+                            <option value="small">small</option>
+                            <option value="normal" selected>normal</option>
+                            <option value="large">large</option>
+                            <option value="Large">Large</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">Color:</span>
+                    <div class="property-input">
+                        <select id="nodeColor"></select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-danger" onclick="app.deleteNode()">🗑️ Delete</button>
+                <button class="btn" onclick="app.closeNodeEditor()">Cancel</button>
+                <button class="btn btn-primary" onclick="app.saveNode()">Save</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ============================================================================
+// TikZ Drawing Application - Phases 1-3
+// ============================================================================
+
+// Predefined TikZ colors
+const TIKZ_COLORS = {
+    black: '#000000',
+    white: '#FFFFFF',
+    red: '#FF0000',
+    green: '#00FF00',
+    blue: '#0000FF',
+    cyan: '#00FFFF',
+    magenta: '#FF00FF',
+    yellow: '#FFFF00',
+    orange: '#FF8000',
+    purple: '#800080',
+    brown: '#804000',
+    gray: '#808080',
+    lightgray: '#C0C0C0',
+    darkgray: '#404040'
+};
+
+// Line thickness mapping
+const THICKNESS_VALUES = {
+    'ultra thin': 0.5,
+    'very thin': 0.75,
+    'thin': 1,
+    'thick': 2,
+    'very thick': 3,
+    'ultra thick': 4
+};
+
+// ============================================================================
+// Object Model Classes
+// ============================================================================
+
+let objectIdCounter = 0;
+
+function generateId(prefix = 'obj') {
+    return `${prefix}_${++objectIdCounter}`;
+}
+
+class TikZObject {
+    constructor(type) {
+        this.id = generateId(type);
+        this.type = type;
+        this.visible = true;
+        this.expanded = false;
+    }
+    
+    toTikZ() { return ''; }
+    getSubObjects() { return []; }
+    getBounds() { return null; }
+}
+
+class TikZCoordinate extends TikZObject {
+    constructor(x, y, name = null) {
+        super('coord');
+        this.x = x;
+        this.y = y;
+        this.name = name || this.id.replace('coord_', 'P');
+        this.showPoint = false;
+        this.pointSize = 2;
+        this.color = 'black';
+        this.label = ''; // Label text to export as node
+        this.anchor = 'above right';
+    }
+    
+    toTikZ() {
+        let code = `  \\coordinate (${this.name}) at (${this.x.toFixed(2)}, ${this.y.toFixed(2)});`;
+        return code;
+    }
+    
+    toTikZPoint() {
+        if (!this.showPoint) return '';
+        return `  \\fill[${this.color}] (${this.name}) circle (${this.pointSize}pt);`;
+    }
+    
+    toTikZLabel() {
+        if (!this.label) return '';
+        return `  \\node[${this.anchor}] at (${this.name}) {${this.label}};`;
+    }
+    
+    getBounds() {
+        return { x: this.x, y: this.y, width: 0, height: 0 };
+    }
+}
+
+class TikZSegment extends TikZObject {
+    constructor(fromCoord, toCoord) {
+        super('line');
+        this.from = fromCoord;
+        this.to = toCoord;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+        this.nodes = []; // Embedded labels
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        let nodeStr = this.nodes.map(n => n.toTikZ()).join(' ');
+        
+        return `  \\draw${optStr} (${this.from}) --${nodeStr} (${this.to});`;
+    }
+    
+    getSubObjects() {
+        return [
+            { type: 'ref', label: `(${this.from})`, ref: this.from },
+            { type: 'segment', label: 'segment', parent: this },
+            ...this.nodes.map(n => ({ type: 'node', label: `"${n.text}"`, node: n, parent: this })),
+            { type: 'ref', label: `(${this.to})`, ref: this.to }
+        ];
+    }
+}
+
+class TikZVector extends TikZObject {
+    constructor(fromCoord, toCoord) {
+        super('vec');
+        this.from = fromCoord;
+        this.to = toCoord;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+        this.arrowType = 'Stealth';
+        this.arrowEnd = '-Stealth';
+        this.arrowSize = 1.0; // Scale factor for arrow size
+        this.nodes = [];
+    }
+    
+    toTikZ() {
+        let opts = [];
+        
+        // Arrow specification
+        opts.push(this.arrowEnd);
+        
+        // Arrow size if not default
+        if (this.arrowSize !== 1.0) {
+            opts.push(`>={${this.arrowType}[scale=${this.arrowSize}]}`);
+        }
+        
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        
+        let optStr = `[${opts.join(', ')}]`;
+        let nodeStr = this.nodes.map(n => n.toTikZ()).join(' ');
+        
+        return `  \\draw${optStr} (${this.from}) --${nodeStr} (${this.to});`;
+    }
+    
+    getSubObjects() {
+        return [
+            { type: 'ref', label: `(${this.from})`, ref: this.from },
+            { type: 'segment', label: 'vector', parent: this },
+            ...this.nodes.map(n => ({ type: 'node', label: `"${n.text}"`, node: n, parent: this })),
+            { type: 'ref', label: `(${this.to})`, ref: this.to }
+        ];
+    }
+}
+
+class TikZCircle extends TikZObject {
+    constructor(centerCoord, radius) {
+        super('circle');
+        this.center = centerCoord;
+        this.radius = radius;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+        this.fill = 'none';
+        this.fillOpacity = 1.0;
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle === 'dashed') opts.push('dashed');
+        if (this.lineStyle === 'dotted') opts.push('dotted');
+        
+        let cmd = '\\draw';
+        if (this.fill !== undefined && this.fill !== 'none') {
+            cmd = '\\filldraw';
+            opts.push(`fill=${this.fill}`);
+            if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+        }
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+    }
+}
+
+class TikZArc extends TikZObject {
+    constructor(centerCoord, radius, startAngle, endAngle) {
+        super('arc');
+        this.center = centerCoord;
+        this.radius = radius;
+        this.startAngle = startAngle;
+        this.endAngle = endAngle;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle === 'dashed') opts.push('dashed');
+        if (this.lineStyle === 'dotted') opts.push('dotted');
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        
+        // Calculate start point
+        const startX = parseFloat(app.getCoordByName(this.center)?.x || 0) + this.radius * Math.cos(this.startAngle * Math.PI / 180);
+        const startY = parseFloat(app.getCoordByName(this.center)?.y || 0) + this.radius * Math.sin(this.startAngle * Math.PI / 180);
+        
+        return `  \\draw${optStr} (${startX.toFixed(2)}, ${startY.toFixed(2)}) arc (${this.startAngle}:${this.endAngle}:${this.radius.toFixed(2)});`;
+    }
+}
+
+class TikZRectangle extends TikZObject {
+    constructor(corner1Coord, corner2Coord) {
+        super('rect');
+        this.corner1 = corner1Coord;
+        this.corner2 = corner2Coord;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+        this.fill = 'none';
+        this.fillOpacity = 1.0;
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle === 'dashed') opts.push('dashed');
+        if (this.lineStyle === 'dotted') opts.push('dotted');
+        
+        let cmd = '\\draw';
+        if (this.fill !== undefined && this.fill !== 'none') {
+            cmd = '\\filldraw';
+            opts.push(`fill=${this.fill}`);
+            if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+        }
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        return `  ${cmd}${optStr} (${this.corner1}) rectangle (${this.corner2});`;
+    }
+}
+
+class TikZPath extends TikZObject {
+    constructor(coords) {
+        super('path');
+        this.points = coords; // Array of coordinate names
+        this.closed = false;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+        this.fill = 'none';
+        this.fillOpacity = 1.0;
+        this.nodes = [];
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle === 'dashed') opts.push('dashed');
+        if (this.lineStyle === 'dotted') opts.push('dotted');
+
+        let cmd = '\\draw';
+        if (this.fill !== undefined && this.fill !== 'none') {
+            cmd = '\\filldraw';
+            opts.push(`fill=${this.fill}`);
+            if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+        }
+
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+
+        // Build path with embedded nodes on segments
+        let pathParts = [];
+        for (let i = 0; i < this.points.length; i++) {
+            pathParts.push(`(${this.points[i]})`);
+
+            // Add nodes for this segment (between point i and point i+1)
+            if (i < this.points.length - 1) {
+                pathParts.push('--');
+                const segmentNodes = this.nodes.filter(n => n.segmentIndex === i);
+                segmentNodes.forEach(node => {
+                    pathParts.push(node.toTikZ());
+                });
+            }
+        }
+
+        // Handle closing segment for closed paths
+        if (this.closed) {
+            pathParts.push('--');
+            const closingNodes = this.nodes.filter(n => n.segmentIndex === this.points.length - 1);
+            closingNodes.forEach(node => {
+                pathParts.push(node.toTikZ());
+            });
+            pathParts.push('cycle');
+        }
+
+        let pathStr = pathParts.join(' ');
+
+        return `  ${cmd}${optStr} ${pathStr};`;
+    }
+    
+    getSubObjects() {
+        let subs = [];
+        this.points.forEach((p, i) => {
+            subs.push({ type: 'ref', label: `(${p})`, ref: p });
+            if (i < this.points.length - 1) {
+                subs.push({ type: 'segment', label: `segment ${i+1}`, parent: this });
+                // Add nodes for this segment
+                const segmentNodes = this.nodes.filter(n => n.segmentIndex === i);
+                segmentNodes.forEach(n => {
+                    subs.push({ type: 'node', label: `"${n.text}"`, node: n, parent: this });
+                });
+            }
+        });
+        if (this.closed) {
+            const closingIndex = this.points.length - 1;
+            subs.push({ type: 'segment', label: 'closing segment', parent: this });
+            // Add nodes for closing segment
+            const closingNodes = this.nodes.filter(n => n.segmentIndex === closingIndex);
+            closingNodes.forEach(n => {
+                subs.push({ type: 'node', label: `"${n.text}"`, node: n, parent: this });
+            });
+        }
+        return subs;
+    }
+}
+
+class TikZBezier extends TikZObject {
+    constructor(fromCoord, controlCoord, toCoord) {
+        super('bezier');
+        this.from = fromCoord;
+        this.control = controlCoord;
+        this.to = toCoord;
+        this.color = 'black';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
+    }
+    
+    toTikZ() {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        
+        // Get control point coordinates
+        const ctrl = app.getCoordByName(this.control);
+        if (ctrl) {
+            // Use "controls (c) and (c)" for quadratic bezier in TikZ
+            const cx = ctrl.x.toFixed(2);
+            const cy = ctrl.y.toFixed(2);
+            return `  \\draw${optStr} (${this.from}) .. controls (${cx}, ${cy}) and (${cx}, ${cy}) .. (${this.to});`;
+        }
+        return `  \\draw${optStr} (${this.from}) -- (${this.to});`;
+    }
+    
+    getSubObjects() {
+        return [
+            { type: 'ref', label: `(${this.from})`, ref: this.from },
+            { type: 'control', label: `◇ (${this.control})`, ref: this.control, parent: this },
+            { type: 'ref', label: `(${this.to})`, ref: this.to }
+        ];
+    }
+}
+
+class TikZLabel extends TikZObject {
+    constructor(atCoord, text) {
+        super('label');
+        this.at = atCoord;
+        this.text = text;
+        this.position = 'above';
+        this.distance = 0;
+        this.fontSize = 'normal';
+        this.color = 'black';
+    }
+    
+    toTikZ() {
+        let opts = [this.position];
+        if (this.color !== 'black') opts.push(`text=${this.color}`);
+        if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
+        if (this.distance > 0) opts[0] = `${this.position}=${this.distance}pt`;
+        
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        return `  \\node${optStr} at (${this.at}) {${this.text}};`;
+    }
+}
+
+class TikZEmbeddedNode {
+    constructor(text, position = 0.5, anchor = 'above') {
+        this.text = text;
+        this.position = position; // 0 to 1
+        this.anchor = anchor;
+        this.fontSize = 'normal';
+        this.color = 'black';
+    }
+    
+    toTikZ() {
+        let opts = [this.anchor];
+        if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
+        if (this.color !== 'black') opts.push(`text=${this.color}`);
+        
+        let posStr = '';
+        if (this.position === 0.5) posStr = 'midway';
+        else if (this.position === 0) posStr = 'at start';
+        else if (this.position === 1) posStr = 'at end';
+        else posStr = `pos=${this.position}`;
+        opts.push(posStr);
+        
+        return ` node[${opts.join(', ')}] {${this.text}}`;
+    }
+}
+
+class TikZGrid extends TikZObject {
+    constructor(xMin, yMin, xMax, yMax) {
+        super('grid');
+        this.xMin = xMin;
+        this.yMin = yMin;
+        this.xMax = xMax;
+        this.yMax = yMax;
+        this.step = 1.0;
+        this.color = 'lightgray';
+        this.thickness = 'very thin';
+    }
+    
+    toTikZ() {
+        return `  \\draw[step=${this.step}, ${this.color}, ${this.thickness}] (${this.xMin}, ${this.yMin}) grid (${this.xMax}, ${this.yMax});`;
+    }
+}
+
+// ============================================================================
+// Main Application
+// ============================================================================
+
+class TikZDrawApp {
+    constructor() {
+        this.canvas = document.getElementById('canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.container = document.getElementById('canvasContainer');
+        
+        // View state
+        this.viewX = 0;
+        this.viewY = 0;
+        this.zoom = 50; // pixels per unit
+        this.snapGrid = 0.25;
+        
+        // Tool state
+        this.currentTool = 'select';
+        this.toolState = null;
+        this.tempPoints = [];
+        
+        // Object storage
+        this.objects = [];
+        this.selectedObject = null;
+        this.selectedSubIndex = -1;
+        this.customColors = {};
+        
+        // LaTeX rendering cache
+        this.latexCache = new Map(); // text -> {svg, width, height}
+        this.latexRenderQueue = [];
+        this.isRenderingLatex = false;
+
+        // Render state
+        this.isRendering = false;
+
+        // Interaction state
+        this.isDragging = false;
+        this.dragStart = null;
+        this.dragObject = null;
+        this.isPanning = false;
+        this.panStart = null;
+        
+        // Initialize
+        this.setupEventListeners();
+        this.resize();
+        this.render();
+        
+        // Wait for MathJax to be ready
+        this.initMathJax();
+    }
+    
+    initMathJax() {
+        // Check if MathJax is already loaded and ready
+        if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
+            MathJax.startup.promise.then(() => {
+                this.mathJaxReady = true;
+                this.render();
+            });
+        } else {
+            // MathJax config will set mathJaxReady when it loads
+            setTimeout(() => {
+                if (!this.mathJaxReady) {
+                    this.initMathJax();
+                }
+            }, 200);
+        }
+    }
+    
+    // Render LaTeX text to an image for canvas drawing
+    parseContour(text) {
+        // Parse \contour{color}{text} and return {text, contourColor} or null
+        // Handle both: \contour{color}{$math$} and $\contour{color}{math}$
+        const contourMatch = text.match(/\\contour\{([^}]+)\}\{([^}]+)\}/);
+        if (contourMatch) {
+            let innerText = contourMatch[2];
+
+            // Check if original text has outer $ delimiters but inner text doesn't
+            const hasOuterMath = text.startsWith('$') && text.endsWith('$');
+            const hasInnerMath = innerText.startsWith('$') && innerText.endsWith('$');
+
+            // If math mode is on the outside, move it to the inside
+            if (hasOuterMath && !hasInnerMath) {
+                innerText = '$' + innerText + '$';
+            }
+
+            return {
+                hasContour: true,
+                contourColor: contourMatch[1],
+                innerText: innerText,
+                fullText: text
+            };
+        }
+        return { hasContour: false, innerText: text, fullText: text };
+    }
+
+    getFontSizePixels(tikzFontSize) {
+        const fontSizeMap = {
+            'tiny': '10px',
+            'scriptsize': '11px',
+            'footnotesize': '12px',
+            'small': '13px',
+            'normalsize': '16px',
+            'normal': '16px',
+            'large': '18px',
+            'Large': '20px',
+            'LARGE': '22px',
+            'huge': '24px',
+            'Huge': '26px'
+        };
+        return fontSizeMap[tikzFontSize] || '16px';
+    }
+
+    async renderLatexToImage(text, color = 'black', fontSize = 'normal') {
+        const cacheKey = `${text}::${color}::${fontSize}`;
+
+        if (this.latexCache.has(cacheKey)) {
+            return this.latexCache.get(cacheKey);
+        }
+
+        if (!this.mathJaxReady || !window.MathJax) {
+            return null;
+        }
+
+        try {
+            // Parse contour if present
+            const contourInfo = this.parseContour(text);
+
+            // For rendering, use the inner text (strip \contour{}{} wrapper)
+            const renderText = contourInfo.innerText;
+            // Create a temporary container
+            const container = document.createElement('div');
+            container.style.position = 'absolute';
+            container.style.left = '-9999px';
+            container.style.top = '0px';
+            container.style.color = color;
+            container.style.fontSize = this.getFontSizePixels(fontSize);
+            container.style.fontFamily = 'serif';
+            container.style.background = 'transparent';
+            container.innerHTML = renderText;
+            document.body.appendChild(container);
+            
+            await MathJax.typesetPromise([container]);
+            
+            const svg = container.querySelector('svg');
+            
+            if (svg) {
+                const bbox = svg.getBoundingClientRect();
+                const width = Math.max(Math.ceil(bbox.width), 10);
+                const height = Math.max(Math.ceil(bbox.height), 10);
+                
+                // Clone SVG and inline all necessary defs
+                const svgClone = svg.cloneNode(true);
+                
+                // Find and copy the MathJax global defs (glyph cache)
+                const globalDefs = document.querySelector('#MJX-SVG-global-cache');
+                if (globalDefs) {
+                    let defs = svgClone.querySelector('defs');
+                    if (!defs) {
+                        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                        svgClone.insertBefore(defs, svgClone.firstChild);
+                    }
+                    
+                    const cachedDefs = globalDefs.querySelector('defs');
+                    if (cachedDefs) {
+                        cachedDefs.childNodes.forEach(node => {
+                            defs.appendChild(node.cloneNode(true));
+                        });
+                    }
+                }
+                
+                // Also copy defs from the SVG itself
+                const svgDefs = svg.querySelector('defs');
+                if (svgDefs) {
+                    let defs = svgClone.querySelector('defs');
+                    if (!defs) {
+                        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                        svgClone.insertBefore(defs, svgClone.firstChild);
+                    }
+                    svgDefs.childNodes.forEach(node => {
+                        if (!defs.querySelector('#' + node.id)) {
+                            defs.appendChild(node.cloneNode(true));
+                        }
+                    });
+                }
+                
+                // Set dimensions and namespaces
+                svgClone.setAttribute('width', width + 'px');
+                svgClone.setAttribute('height', height + 'px');
+                svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                
+                const viewBox = svg.getAttribute('viewBox');
+                if (viewBox) {
+                    svgClone.setAttribute('viewBox', viewBox);
+                }
+                
+                // Apply color
+                svgClone.style.color = color;
+                svgClone.querySelectorAll('*').forEach(el => {
+                    const fill = el.getAttribute('fill');
+                    if (fill === 'currentColor') {
+                        el.setAttribute('fill', color);
+                    }
+                });
+                
+                // Serialize and create data URL
+                const svgString = new XMLSerializer().serializeToString(svgClone);
+                const base64 = btoa(unescape(encodeURIComponent(svgString)));
+                const dataUrl = 'data:image/svg+xml;base64,' + base64;
+                
+                // Load into image
+                const svgImg = new Image();
+                await new Promise((resolve, reject) => {
+                    svgImg.onload = resolve;
+                    svgImg.onerror = reject;
+                    svgImg.src = dataUrl;
+                });
+                
+                // Render to canvas at 2x scale for quality
+                const scale = 2;
+                const offscreen = document.createElement('canvas');
+                offscreen.width = width * scale;
+                offscreen.height = height * scale;
+                const offCtx = offscreen.getContext('2d');
+                // Explicitly clear with transparency
+                offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
+                offCtx.scale(scale, scale);
+                offCtx.drawImage(svgImg, 0, 0, width, height);
+                
+                // Create final PNG image
+                const finalImg = new Image();
+                await new Promise((resolve, reject) => {
+                    finalImg.onload = resolve;
+                    finalImg.onerror = reject;
+                    finalImg.src = offscreen.toDataURL('image/png');
+                });
+
+                const result = {
+                    img: finalImg,
+                    width,
+                    height,
+                    hasContour: contourInfo.hasContour,
+                    contourColor: contourInfo.hasContour ? contourInfo.contourColor : null
+                };
+                this.latexCache.set(cacheKey, result);
+
+                document.body.removeChild(container);
+                return result;
+            } else {
+                document.body.removeChild(container);
+                return null;
+            }
+        } catch (err) {
+            console.error('LaTeX render error:', err);
+            return null;
+        }
+    }
+    
+    // Queue a LaTeX render and trigger re-render when done
+    queueLatexRender(text, color = 'black', fontSize = 'normal') {
+        const cacheKey = `${text}::${color}::${fontSize}`;
+        if (this.latexCache.has(cacheKey)) return;
+
+        if (!this.latexRenderQueue.some(q => q.key === cacheKey)) {
+            this.latexRenderQueue.push({ text, color, fontSize, key: cacheKey });
+            this.processLatexQueue();
+        }
+    }
+
+    async processLatexQueue() {
+        if (this.isRenderingLatex || this.latexRenderQueue.length === 0) return;
+
+        this.isRenderingLatex = true;
+
+        while (this.latexRenderQueue.length > 0) {
+            const { text, color, fontSize } = this.latexRenderQueue.shift();
+            await this.renderLatexToImage(text, color, fontSize);
+        }
+
+        this.isRenderingLatex = false;
+
+        // Schedule a render on the next animation frame to avoid infinite loops
+        // Only if we're not already in a render call
+        if (!this.isRendering) {
+            requestAnimationFrame(() => this.render());
+        }
+    }
+    
+    // ========================================================================
+    // Setup
+    // ========================================================================
+    
+    setupEventListeners() {
+        // Window resize
+        window.addEventListener('resize', () => this.resize());
+        
+        // Tool buttons
+        document.querySelectorAll('.tool').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.currentTool = btn.dataset.tool;
+                this.toolState = null;
+                this.tempPoints = [];
+                this.updateStatusTip();
+                this.render();
+            });
+        });
+        
+        // Canvas events
+        this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
+        this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
+        this.canvas.addEventListener('mouseup', e => this.onMouseUp(e));
+        this.canvas.addEventListener('wheel', e => this.onWheel(e));
+        this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+        
+        // Keyboard
+        document.addEventListener('keydown', e => this.onKeyDown(e));
+        
+        // Object list drag and drop
+        this.setupDragDrop();
+    }
+    
+    resize() {
+        const rect = this.container.getBoundingClientRect();
+        this.canvas.width = rect.width;
+        this.canvas.height = rect.height;
+        
+        // Center view if first time
+        if (this.viewX === 0 && this.viewY === 0) {
+            this.viewX = this.canvas.width / 2 - 5 * this.zoom;
+            this.viewY = this.canvas.height / 2 + 5 * this.zoom;
+        }
+        
+        this.render();
+    }
+    
+    // ========================================================================
+    // Coordinate Conversion
+    // ========================================================================
+    
+    screenToWorld(sx, sy) {
+        return {
+            x: (sx - this.viewX) / this.zoom,
+            y: (this.viewY - sy) / this.zoom
+        };
+    }
+    
+    worldToScreen(wx, wy) {
+        return {
+            x: wx * this.zoom + this.viewX,
+            y: this.viewY - wy * this.zoom
+        };
+    }
+    
+    snapToGrid(val) {
+        return Math.round(val / this.snapGrid) * this.snapGrid;
+    }
+    
+    // ========================================================================
+    // Object Management
+    // ========================================================================
+    
+    addObject(obj) {
+        // Keep coordinates grouped at the top of the list
+        if (obj instanceof TikZCoordinate) {
+            // Find the last coordinate index
+            let lastCoordIndex = -1;
+            for (let i = 0; i < this.objects.length; i++) {
+                if (this.objects[i] instanceof TikZCoordinate) {
+                    lastCoordIndex = i;
+                }
+            }
+            // Insert after last coordinate, or at beginning if no coordinates
+            this.objects.splice(lastCoordIndex + 1, 0, obj);
+        } else {
+            this.objects.push(obj);
+        }
+        this.updateObjectList();
+        this.updateObjectCount();
+        this.render();
+        return obj;
+    }
+    
+    removeObject(obj) {
+        const idx = this.objects.indexOf(obj);
+        if (idx >= 0) {
+            this.objects.splice(idx, 1);
+            if (this.selectedObject === obj) {
+                // Select next object in list, or previous if at end
+                if (this.objects.length > 0) {
+                    if (idx < this.objects.length) {
+                        this.selectedObject = this.objects[idx];
+                    } else {
+                        this.selectedObject = this.objects[this.objects.length - 1];
+                    }
+                } else {
+                    this.selectedObject = null;
+                }
+                this.updatePropertiesPanel();
+            }
+            this.updateObjectList();
+            this.updateObjectCount();
+            this.render();
+        }
+    }
+    
+    getCoordByName(name) {
+        for (const obj of this.objects) {
+            if (obj instanceof TikZCoordinate && obj.name === name) {
+                return obj;
+            }
+        }
+        return null;
+    }
+    
+    findCoordNear(wx, wy, threshold = 0.3) {
+        let closest = null;
+        let closestDist = threshold;
+        
+        for (const obj of this.objects) {
+            if (obj instanceof TikZCoordinate) {
+                const dist = Math.hypot(obj.x - wx, obj.y - wy);
+                if (dist < closestDist) {
+                    closest = obj;
+                    closestDist = dist;
+                }
+            }
+        }
+        
+        return closest;
+    }
+    
+    findObjectAt(wx, wy) {
+        // Priority check: if a bezier is selected, check its control point first
+        // This ensures control points are clickable even when grids are behind them
+        if (this.selectedObject instanceof TikZBezier) {
+            const ctrl = this.getCoordByName(this.selectedObject.control);
+            if (ctrl) {
+                const dist = Math.hypot(ctrl.x - wx, ctrl.y - wy);
+                if (dist < 0.3) return ctrl; // Larger hit radius for better grabbing
+            }
+        }
+
+        // Check in reverse order (topmost first)
+        for (let i = this.objects.length - 1; i >= 0; i--) {
+            const obj = this.objects[i];
+            
+            if (obj instanceof TikZCoordinate) {
+                const dist = Math.hypot(obj.x - wx, obj.y - wy);
+                if (dist < 0.2) return obj;
+            }
+            else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+                const from = this.getCoordByName(obj.from);
+                const to = this.getCoordByName(obj.to);
+                if (from && to) {
+                    const dist = this.pointToSegmentDist(wx, wy, from.x, from.y, to.x, to.y);
+                    if (dist < 0.15) return obj;
+                }
+            }
+            else if (obj instanceof TikZCircle) {
+                const center = this.getCoordByName(obj.center);
+                if (center) {
+                    const dist = Math.abs(Math.hypot(wx - center.x, wy - center.y) - obj.radius);
+                    if (dist < 0.15) return obj;
+                }
+            }
+            else if (obj instanceof TikZArc) {
+                const center = this.getCoordByName(obj.center);
+                if (center) {
+                    const dist = Math.hypot(wx - center.x, wy - center.y);
+                    const angle = Math.atan2(wy - center.y, wx - center.x) * 180 / Math.PI;
+                    let normAngle = angle < 0 ? angle + 360 : angle;
+                    let startNorm = obj.startAngle < 0 ? obj.startAngle + 360 : obj.startAngle;
+                    let endNorm = obj.endAngle < 0 ? obj.endAngle + 360 : obj.endAngle;
+                    
+                    if (Math.abs(dist - obj.radius) < 0.15) {
+                        // Check if angle is within arc
+                        if (endNorm > startNorm) {
+                            if (normAngle >= startNorm && normAngle <= endNorm) return obj;
+                        } else {
+                            if (normAngle >= startNorm || normAngle <= endNorm) return obj;
+                        }
+                    }
+                }
+            }
+            else if (obj instanceof TikZRectangle) {
+                const c1 = this.getCoordByName(obj.corner1);
+                const c2 = this.getCoordByName(obj.corner2);
+                if (c1 && c2) {
+                    const minX = Math.min(c1.x, c2.x);
+                    const maxX = Math.max(c1.x, c2.x);
+                    const minY = Math.min(c1.y, c2.y);
+                    const maxY = Math.max(c1.y, c2.y);
+                    
+                    // Check if near edges
+                    if (wx >= minX - 0.15 && wx <= maxX + 0.15 && wy >= minY - 0.15 && wy <= maxY + 0.15) {
+                        const distToLeft = Math.abs(wx - minX);
+                        const distToRight = Math.abs(wx - maxX);
+                        const distToTop = Math.abs(wy - maxY);
+                        const distToBottom = Math.abs(wy - minY);
+                        
+                        if (Math.min(distToLeft, distToRight, distToTop, distToBottom) < 0.15) {
+                            return obj;
+                        }
+                    }
+                }
+            }
+            else if (obj instanceof TikZBezier) {
+                const from = this.getCoordByName(obj.from);
+                const ctrl = this.getCoordByName(obj.control);
+                const to = this.getCoordByName(obj.to);
+                if (from && ctrl && to) {
+                    // Sample points along cubic bezier (same control point twice)
+                    for (let t = 0; t <= 1; t += 0.05) {
+                        // Cubic bezier formula with c1 = c2 = ctrl
+                        const mt = 1 - t;
+                        const px = mt*mt*mt*from.x + 3*mt*mt*t*ctrl.x + 3*mt*t*t*ctrl.x + t*t*t*to.x;
+                        const py = mt*mt*mt*from.y + 3*mt*mt*t*ctrl.y + 3*mt*t*t*ctrl.y + t*t*t*to.y;
+                        if (Math.hypot(wx - px, wy - py) < 0.15) return obj;
+                    }
+                }
+            }
+            else if (obj instanceof TikZPath) {
+                for (let i = 0; i < obj.points.length - 1; i++) {
+                    const from = this.getCoordByName(obj.points[i]);
+                    const to = this.getCoordByName(obj.points[i + 1]);
+                    if (from && to) {
+                        const dist = this.pointToSegmentDist(wx, wy, from.x, from.y, to.x, to.y);
+                        if (dist < 0.15) return obj;
+                    }
+                }
+                if (obj.closed && obj.points.length > 2) {
+                    const from = this.getCoordByName(obj.points[obj.points.length - 1]);
+                    const to = this.getCoordByName(obj.points[0]);
+                    if (from && to) {
+                        const dist = this.pointToSegmentDist(wx, wy, from.x, from.y, to.x, to.y);
+                        if (dist < 0.15) return obj;
+                    }
+                }
+            }
+            else if (obj instanceof TikZLabel) {
+                const at = this.getCoordByName(obj.at);
+                if (at) {
+                    // Rough hit test for label
+                    const dist = Math.hypot(wx - at.x, wy - at.y);
+                    if (dist < 0.5) return obj;
+                }
+            }
+            else if (obj instanceof TikZGrid) {
+                // Grid is selectable but low priority
+                if (wx >= obj.xMin && wx <= obj.xMax && wy >= obj.yMin && wy <= obj.yMax) {
+                    return obj;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    pointToSegmentDist(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len2 = dx*dx + dy*dy;
+        
+        if (len2 === 0) return Math.hypot(px - x1, py - y1);
+        
+        let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        
+        const closestX = x1 + t * dx;
+        const closestY = y1 + t * dy;
+        
+        return Math.hypot(px - closestX, py - closestY);
+    }
+    
+    generateCoordName() {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        let index = 0;
+        
+        while (true) {
+            let name;
+            if (index < 26) {
+                name = letters[index];
+            } else {
+                name = letters[Math.floor(index / 26) - 1] + letters[index % 26];
+            }
+            
+            if (!this.getCoordByName(name)) return name;
+            index++;
+        }
+    }
+    
+    // ========================================================================
+    // Mouse Event Handlers
+    // ========================================================================
+    
+    onMouseDown(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const world = this.screenToWorld(sx, sy);
+        const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
+        
+        // Middle mouse or space+left for panning
+        if (e.button === 1 || (e.button === 0 && e.shiftKey && this.currentTool === 'select')) {
+            this.isPanning = true;
+            this.panStart = { x: sx, y: sy, viewX: this.viewX, viewY: this.viewY };
+            return;
+        }
+        
+        // Right click to cancel
+        if (e.button === 2) {
+            this.toolState = null;
+            this.tempPoints = [];
+            this.render();
+            return;
+        }
+        
+        // Left click actions based on tool
+        if (e.button === 0) {
+            this.handleToolClick(snapped, world);
+        }
+    }
+    
+    onMouseMove(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const world = this.screenToWorld(sx, sy);
+        const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
+        
+        // Update cursor position display
+        document.getElementById('cursorPos').textContent = `(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`;
+        
+        // Handle panning
+        if (this.isPanning && this.panStart) {
+            this.viewX = this.panStart.viewX + (sx - this.panStart.x);
+            this.viewY = this.panStart.viewY + (sy - this.panStart.y);
+            this.render();
+            return;
+        }
+        
+        // Handle dragging selected object
+        if (this.isDragging && this.dragObject && this.dragObject instanceof TikZCoordinate) {
+            this.dragObject.x = snapped.x;
+            this.dragObject.y = snapped.y;
+            this.render();
+            this.updatePropertiesPanel();
+            return;
+        }
+        
+        // Update temp drawing for tools
+        if (this.tempPoints.length > 0) {
+            this.render();
+            this.drawTempGeometry(snapped);
+        }
+    }
+    
+    onMouseUp(e) {
+        if (this.isPanning) {
+            this.isPanning = false;
+            this.panStart = null;
+        }
+        
+        if (this.isDragging) {
+            this.isDragging = false;
+            this.dragObject = null;
+            this.updateObjectList();
+        }
+    }
+    
+    onWheel(e) {
+        e.preventDefault();
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        
+        // Zoom centered on mouse position
+        const worldBefore = this.screenToWorld(sx, sy);
+        
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        this.zoom = Math.max(10, Math.min(200, this.zoom * zoomFactor));
+        
+        const worldAfter = this.screenToWorld(sx, sy);
+        
+        this.viewX += (worldAfter.x - worldBefore.x) * this.zoom;
+        this.viewY -= (worldAfter.y - worldBefore.y) * this.zoom;
+        
+        document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
+        this.render();
+    }
+    
+    onKeyDown(e) {
+        // Check if we're in an input field - if so, let default behavior happen
+        const activeEl = document.activeElement;
+        const isInputActive = activeEl && (
+            activeEl.tagName === 'INPUT' || 
+            activeEl.tagName === 'TEXTAREA' || 
+            activeEl.tagName === 'SELECT' ||
+            activeEl.isContentEditable
+        );
+        
+        // Tool shortcuts - only when not in input
+        const toolKeys = {
+            'v': 'select', 'p': 'point', 'l': 'line', 'a': 'vector',
+            'c': 'circle', 'r': 'arc', 'b': 'rect', 't': 'label',
+            'h': 'path', 'q': 'bezier', 'g': 'grid'
+        };
+        
+        if (!isInputActive && toolKeys[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) {
+            const tool = toolKeys[e.key.toLowerCase()];
+            document.querySelector(`.tool[data-tool="${tool}"]`)?.click();
+            return;
+        }
+        
+        // Delete - only when not in input field
+        if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedObject && !isInputActive) {
+            e.preventDefault();
+            this.removeObject(this.selectedObject);
+            return;
+        }
+        
+        // Escape
+        if (e.key === 'Escape') {
+            this.toolState = null;
+            this.tempPoints = [];
+            this.selectedObject = null;
+            this.updatePropertiesPanel();
+            this.updateObjectList();
+            this.render();
+            return;
+        }
+        
+        // Ctrl+S to save
+        if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            this.saveProject();
+            return;
+        }
+        
+        // Ctrl+E to export
+        if (e.key === 'e' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            this.showExport();
+            return;
+        }
+    }
+    
+    // ========================================================================
+    // Tool Handling
+    // ========================================================================
+    
+    handleToolClick(snapped, world) {
+        switch (this.currentTool) {
+            case 'select':
+                this.handleSelectClick(world);
+                break;
+            case 'point':
+                this.handlePointClick(snapped);
+                break;
+            case 'line':
+            case 'vector':
+                this.handleLineClick(snapped);
+                break;
+            case 'circle':
+                this.handleCircleClick(snapped);
+                break;
+            case 'arc':
+                this.handleArcClick(snapped);
+                break;
+            case 'rect':
+                this.handleRectClick(snapped);
+                break;
+            case 'label':
+                this.handleLabelClick(snapped);
+                break;
+            case 'path':
+                this.handlePathClick(snapped);
+                break;
+            case 'bezier':
+                this.handleBezierClick(snapped);
+                break;
+            case 'grid':
+                this.handleGridClick(snapped);
+                break;
+        }
+    }
+    
+    handleSelectClick(world) {
+        const obj = this.findObjectAt(world.x, world.y);
+
+        if (obj) {
+            this.selectedObject = obj;
+
+            // Start dragging if it's a coordinate
+            if (obj instanceof TikZCoordinate) {
+                this.isDragging = true;
+                this.dragObject = obj;
+            }
+
+            // Update UI first
+            this.updatePropertiesPanel();
+            this.updateObjectList();
+            this.render();
+
+            // Auto-open label editor for segments/vectors only (not paths)
+            // For paths, user must click on specific segment in object list
+            // Use type property instead of instanceof
+            if (obj.type === 'line' || obj.type === 'vec') {
+                // Use setTimeout to ensure UI updates complete first
+                setTimeout(() => {
+                    if (obj.nodes && obj.nodes.length > 0) {
+                        // Open editor for first existing label
+                        this.openNodeEditor(obj, obj.nodes[0]);
+                    } else {
+                        // Create and open editor for new label
+                        const node = new TikZEmbeddedNode('label', 0.5, 'above');
+                        if (!obj.nodes) obj.nodes = [];
+                        obj.nodes.push(node);
+                        this.updateObjectList();
+                        this.openNodeEditor(obj, node);
+                    }
+                }, 50);
+                return;
+            }
+        } else {
+            this.selectedObject = null;
+            this.updatePropertiesPanel();
+            this.updateObjectList();
+            this.render();
+        }
+    }
+    
+    handlePointClick(snapped) {
+        // Check for existing point
+        const existing = this.findCoordNear(snapped.x, snapped.y, 0.1);
+        if (existing) {
+            this.selectedObject = existing;
+            this.updatePropertiesPanel();
+            this.updateObjectList();
+            this.render();
+            return;
+        }
+        
+        const coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+        coord.showPoint = true;
+        this.addObject(coord);
+        this.selectedObject = coord;
+        this.updatePropertiesPanel();
+    }
+    
+    handleLineClick(snapped) {
+        // Try to find existing coordinate nearby
+        let coord = this.findCoordNear(snapped.x, snapped.y);
+        
+        if (!coord) {
+            // Create new coordinate
+            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(coord);
+        }
+        
+        this.tempPoints.push(coord.name);
+        
+        if (this.tempPoints.length === 2) {
+            // Create line or vector
+            const obj = this.currentTool === 'vector' 
+                ? new TikZVector(this.tempPoints[0], this.tempPoints[1])
+                : new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
+            this.addObject(obj);
+            this.selectedObject = obj;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handleCircleClick(snapped) {
+        if (this.tempPoints.length === 0) {
+            // First click: center
+            let coord = this.findCoordNear(snapped.x, snapped.y);
+            if (!coord) {
+                coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+                this.addObject(coord);
+            }
+            this.tempPoints.push({ name: coord.name, x: coord.x, y: coord.y });
+        } else {
+            // Second click: radius point
+            const center = this.tempPoints[0];
+            const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
+            
+            const circle = new TikZCircle(center.name, Math.max(0.1, radius));
+            this.addObject(circle);
+            this.selectedObject = circle;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handleArcClick(snapped) {
+        if (this.tempPoints.length === 0) {
+            // First click: center
+            let coord = this.findCoordNear(snapped.x, snapped.y);
+            if (!coord) {
+                coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+                this.addObject(coord);
+            }
+            this.tempPoints.push({ name: coord.name, x: coord.x, y: coord.y });
+        } else if (this.tempPoints.length === 1) {
+            // Second click: start angle and radius
+            const center = this.tempPoints[0];
+            const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
+            const startAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
+            this.tempPoints.push({ radius, startAngle });
+        } else {
+            // Third click: end angle
+            const center = this.tempPoints[0];
+            const { radius, startAngle } = this.tempPoints[1];
+            const endAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
+            
+            const arc = new TikZArc(center.name, radius, startAngle, endAngle);
+            this.addObject(arc);
+            this.selectedObject = arc;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handleRectClick(snapped) {
+        let coord = this.findCoordNear(snapped.x, snapped.y);
+        if (!coord) {
+            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(coord);
+        }
+        
+        this.tempPoints.push(coord.name);
+        
+        if (this.tempPoints.length === 2) {
+            const rect = new TikZRectangle(this.tempPoints[0], this.tempPoints[1]);
+            this.addObject(rect);
+            this.selectedObject = rect;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handleLabelClick(snapped) {
+        // Attach to nearest coordinate
+        const coord = this.findCoordNear(snapped.x, snapped.y, 1.0);
+        
+        if (coord) {
+            const label = new TikZLabel(coord.name, '$x$');
+            this.addObject(label);
+            this.selectedObject = label;
+            this.updatePropertiesPanel();
+        } else {
+            // Create coordinate first
+            const newCoord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(newCoord);
+            const label = new TikZLabel(newCoord.name, '$x$');
+            this.addObject(label);
+            this.selectedObject = label;
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handlePathClick(snapped) {
+        let coord = this.findCoordNear(snapped.x, snapped.y);
+        if (!coord) {
+            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(coord);
+        }
+
+        // Check if closing the path (clicking first point again)
+        if (this.tempPoints.length >= 3 && coord.name === this.tempPoints[0]) {
+            const path = new TikZPath([...this.tempPoints]);
+            path.closed = true;
+            this.addObject(path);
+            this.selectedObject = path;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        } else {
+            this.tempPoints.push(coord.name);
+
+            // Double-click or shift+click to finish open path
+            if (this.tempPoints.length >= 2 && this.toolState === 'finishing') {
+                const path = new TikZPath([...this.tempPoints]);
+                this.addObject(path);
+                this.selectedObject = path;
+                this.tempPoints = [];
+                this.toolState = null;
+                this.updatePropertiesPanel();
+            }
+        }
+
+        this.render();
+
+        // Keep showing temp geometry after click
+        if (this.tempPoints.length > 0) {
+            this.drawTempGeometry(snapped);
+        }
+    }
+    
+    handleBezierClick(snapped) {
+        let coord = this.findCoordNear(snapped.x, snapped.y);
+        if (!coord) {
+            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(coord);
+        }
+        
+        this.tempPoints.push(coord.name);
+        
+        if (this.tempPoints.length === 3) {
+            const bezier = new TikZBezier(this.tempPoints[0], this.tempPoints[1], this.tempPoints[2]);
+            this.addObject(bezier);
+            this.selectedObject = bezier;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    handleGridClick(snapped) {
+        if (this.tempPoints.length === 0) {
+            this.tempPoints.push({ x: snapped.x, y: snapped.y });
+        } else {
+            const p1 = this.tempPoints[0];
+            const grid = new TikZGrid(
+                Math.min(p1.x, snapped.x),
+                Math.min(p1.y, snapped.y),
+                Math.max(p1.x, snapped.x),
+                Math.max(p1.y, snapped.y)
+            );
+            this.addObject(grid);
+            this.selectedObject = grid;
+            this.tempPoints = [];
+            this.updatePropertiesPanel();
+        }
+        
+        this.render();
+    }
+    
+    updateStatusTip() {
+        const tips = {
+            'select': 'Click to select, drag to move points',
+            'point': 'Click to place a point',
+            'line': 'Click two points to create a line',
+            'vector': 'Click two points to create a vector',
+            'circle': 'Click center, then click to set radius',
+            'arc': 'Click center, start point, then end point',
+            'rect': 'Click two opposite corners',
+            'label': 'Click near a point to add a label',
+            'path': 'Click points, click first point to close',
+            'bezier': 'Click start, control point, then end',
+            'grid': 'Click two corners for grid area'
+        };
+        
+        document.getElementById('statusTip').textContent = tips[this.currentTool] || '';
+    }
+    
+    // ========================================================================
+    // Rendering
+    // ========================================================================
+    
+    render() {
+        // Prevent recursive render calls
+        if (this.isRendering) return;
+
+        this.isRendering = true;
+
+        try {
+            const ctx = this.ctx;
+            const w = this.canvas.width;
+            const h = this.canvas.height;
+
+            // Clear with white background (matches LaTeX default)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+
+            // Draw background grid
+            this.drawBackgroundGrid();
+
+            // Draw axes
+            this.drawAxes();
+
+            // Draw all objects
+            for (const obj of this.objects) {
+                this.drawObject(obj);
+            }
+
+            // Draw selection highlight
+            if (this.selectedObject) {
+                this.drawSelectionHighlight(this.selectedObject);
+            }
+        } finally {
+            this.isRendering = false;
+        }
+    }
+    
+    drawBackgroundGrid() {
+        const ctx = this.ctx;
+        
+        // Calculate visible range
+        const topLeft = this.screenToWorld(0, 0);
+        const bottomRight = this.screenToWorld(this.canvas.width, this.canvas.height);
+        
+        // Minor grid (light gray on white background)
+        ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+        ctx.lineWidth = 1;
+        
+        const minorStep = 0.5;
+        const startX = Math.floor(topLeft.x / minorStep) * minorStep;
+        const endX = Math.ceil(bottomRight.x / minorStep) * minorStep;
+        const startY = Math.floor(bottomRight.y / minorStep) * minorStep;
+        const endY = Math.ceil(topLeft.y / minorStep) * minorStep;
+        
+        ctx.beginPath();
+        for (let x = startX; x <= endX; x += minorStep) {
+            const sx = this.worldToScreen(x, 0).x;
+            ctx.moveTo(sx, 0);
+            ctx.lineTo(sx, this.canvas.height);
+        }
+        for (let y = startY; y <= endY; y += minorStep) {
+            const sy = this.worldToScreen(0, y).y;
+            ctx.moveTo(0, sy);
+            ctx.lineTo(this.canvas.width, sy);
+        }
+        ctx.stroke();
+        
+        // Major grid (darker gray)
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.beginPath();
+        for (let x = Math.floor(topLeft.x); x <= Math.ceil(bottomRight.x); x++) {
+            const sx = this.worldToScreen(x, 0).x;
+            ctx.moveTo(sx, 0);
+            ctx.lineTo(sx, this.canvas.height);
+        }
+        for (let y = Math.floor(bottomRight.y); y <= Math.ceil(topLeft.y); y++) {
+            const sy = this.worldToScreen(0, y).y;
+            ctx.moveTo(0, sy);
+            ctx.lineTo(this.canvas.width, sy);
+        }
+        ctx.stroke();
+    }
+    
+    drawAxes() {
+        const ctx = this.ctx;
+        const origin = this.worldToScreen(0, 0);
+        
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = 1;
+        
+        // X axis
+        ctx.beginPath();
+        ctx.moveTo(0, origin.y);
+        ctx.lineTo(this.canvas.width, origin.y);
+        ctx.stroke();
+        
+        // Y axis
+        ctx.beginPath();
+        ctx.moveTo(origin.x, 0);
+        ctx.lineTo(origin.x, this.canvas.height);
+        ctx.stroke();
+        
+        // Axis labels
+        ctx.fillStyle = '#666';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('x', this.canvas.width - 15, origin.y - 5);
+        ctx.fillText('y', origin.x + 5, 15);
+    }
+    
+    drawObject(obj) {
+        const ctx = this.ctx;
+        
+        if (obj instanceof TikZGrid) {
+            this.drawGrid(obj);
+        }
+        else if (obj instanceof TikZCoordinate) {
+            this.drawCoordinate(obj);
+        }
+        else if (obj instanceof TikZSegment) {
+            this.drawSegment(obj);
+        }
+        else if (obj instanceof TikZVector) {
+            this.drawVector(obj);
+        }
+        else if (obj instanceof TikZCircle) {
+            this.drawCircle(obj);
+        }
+        else if (obj instanceof TikZArc) {
+            this.drawArc(obj);
+        }
+        else if (obj instanceof TikZRectangle) {
+            this.drawRectangle(obj);
+        }
+        else if (obj instanceof TikZPath) {
+            this.drawPath(obj);
+        }
+        else if (obj instanceof TikZBezier) {
+            this.drawBezier(obj);
+        }
+        else if (obj instanceof TikZLabel) {
+            const at = this.getCoordByName(obj.at);
+            if (at) this.drawLabel(obj, at.x, at.y);
+        }
+    }
+    
+    getColor(colorName) {
+        return TIKZ_COLORS[colorName] || this.customColors[colorName] || colorName;
+    }
+    
+    getThickness(thicknessName) {
+        return (THICKNESS_VALUES[thicknessName] || 1) * Math.max(1, this.zoom / 50);
+    }
+    
+    drawCoordinate(coord) {
+        const ctx = this.ctx;
+        const pos = this.worldToScreen(coord.x, coord.y);
+        
+        if (coord.showPoint) {
+            const size = coord.pointSize * Math.max(1, this.zoom / 50);
+            ctx.fillStyle = this.getColor(coord.color);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Draw coordinate name (editor reference, gray)
+        ctx.fillStyle = '#888';
+        ctx.font = '10px sans-serif';
+        const nameOffset = coord.showPoint ? (coord.pointSize * Math.max(1, this.zoom / 50) + 3) : 3;
+        ctx.fillText(coord.name, pos.x + nameOffset, pos.y - 3);
+        
+        // Draw exported label if set (rendered with LaTeX)
+        if (coord.label) {
+            return this.drawLabel(coord, coord.x, coord.y);
+        }
+    }
+    
+    drawSegment(seg) {
+        const from = this.getCoordByName(seg.from);
+        const to = this.getCoordByName(seg.to);
+        if (!from || !to) return;
+
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(from.x, from.y);
+        const p2 = this.worldToScreen(to.x, to.y);
+
+        ctx.strokeStyle = this.getColor(seg.color);
+        ctx.lineWidth = this.getThickness(seg.thickness);
+        ctx.setLineDash(this.getLineDash(seg.lineStyle));
+
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw embedded nodes AFTER the line
+        for (const node of seg.nodes) {
+            const t = node.position;
+            const nx = from.x + t * (to.x - from.x);
+            const ny = from.y + t * (to.y - from.y);
+            this.drawLabel(node, nx, ny);
+        }
+    }
+    
+    getLineDash(style) {
+        switch (style) {
+            case 'dashed': return [8, 4];
+            case 'dotted': return [2, 3];
+            case 'dashdotted': return [8, 3, 2, 3];
+            case 'dashdotdotted': return [8, 3, 2, 3, 2, 3];
+            case 'loosely dashed': return [8, 8];
+            case 'densely dashed': return [4, 2];
+            case 'loosely dotted': return [2, 6];
+            case 'densely dotted': return [2, 1];
+            case 'loosely dashdotted': return [8, 6, 2, 6];
+            case 'densely dashdotted': return [4, 2, 2, 2];
+            default: return [];
+        }
+    }
+    
+    drawVector(vec) {
+        const from = this.getCoordByName(vec.from);
+        const to = this.getCoordByName(vec.to);
+        if (!from || !to) return;
+
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(from.x, from.y);
+        const p2 = this.worldToScreen(to.x, to.y);
+
+        ctx.strokeStyle = this.getColor(vec.color);
+        ctx.fillStyle = this.getColor(vec.color);
+        ctx.lineWidth = this.getThickness(vec.thickness);
+        ctx.setLineDash(this.getLineDash(vec.lineStyle));
+
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw arrowheads based on arrowEnd setting
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        const arrowSize = 10 * vec.arrowSize * Math.max(1, this.zoom / 50);
+
+        const hasEndArrow = vec.arrowEnd.includes('Stealth') || vec.arrowEnd.includes('latex') || vec.arrowEnd === '->' || vec.arrowEnd === '<->';
+        const hasStartArrow = vec.arrowEnd.startsWith('Stealth') || vec.arrowEnd.startsWith('latex') || vec.arrowEnd === '<-' || vec.arrowEnd === '<->';
+        const hasBothArrows = vec.arrowEnd.includes('-') && vec.arrowEnd.split('-').filter(s => s).length === 2;
+
+        if (hasBothArrows || (hasEndArrow && !vec.arrowEnd.startsWith('Stealth') && !vec.arrowEnd.startsWith('latex') && !vec.arrowEnd.startsWith('<'))) {
+            this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
+        }
+        if (hasBothArrows || hasStartArrow) {
+            this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize);
+        }
+        if (!hasBothArrows && (vec.arrowEnd === '-Stealth' || vec.arrowEnd === '-latex' || vec.arrowEnd === '->')) {
+            this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
+        }
+
+        // Draw embedded nodes AFTER the line and arrowheads
+        for (const node of vec.nodes) {
+            const t = node.position;
+            const nx = from.x + t * (to.x - from.x);
+            const ny = from.y + t * (to.y - from.y);
+            this.drawLabel(node, nx, ny);
+        }
+    }
+    
+    drawArrowhead(x, y, angle, size) {
+        const ctx = this.ctx;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - size * Math.cos(angle - 0.4), y - size * Math.sin(angle - 0.4));
+        ctx.lineTo(x - size * 0.6 * Math.cos(angle), y - size * 0.6 * Math.sin(angle));
+        ctx.lineTo(x - size * Math.cos(angle + 0.4), y - size * Math.sin(angle + 0.4));
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    drawCircle(circle) {
+        const center = this.getCoordByName(circle.center);
+        if (!center) return;
+        
+        const ctx = this.ctx;
+        const pos = this.worldToScreen(center.x, center.y);
+        const radius = circle.radius * this.zoom;
+        
+        if (circle.fill !== 'none') {
+            ctx.fillStyle = this.getColor(circle.fill);
+            ctx.globalAlpha = circle.fillOpacity;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+        
+        ctx.strokeStyle = this.getColor(circle.color);
+        ctx.lineWidth = this.getThickness(circle.thickness);
+        ctx.setLineDash(this.getLineDash(circle.lineStyle));
+        
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    
+    drawArc(arc) {
+        const center = this.getCoordByName(arc.center);
+        if (!center) return;
+        
+        const ctx = this.ctx;
+        const pos = this.worldToScreen(center.x, center.y);
+        const radius = arc.radius * this.zoom;
+        
+        ctx.strokeStyle = this.getColor(arc.color);
+        ctx.lineWidth = this.getThickness(arc.thickness);
+        ctx.setLineDash(this.getLineDash(arc.lineStyle));
+        
+        // Convert angles (canvas y is inverted)
+        const startRad = -arc.startAngle * Math.PI / 180;
+        const endRad = -arc.endAngle * Math.PI / 180;
+        
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, startRad, endRad, true);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    
+    drawRectangle(rect) {
+        const c1 = this.getCoordByName(rect.corner1);
+        const c2 = this.getCoordByName(rect.corner2);
+        if (!c1 || !c2) return;
+        
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(c1.x, c1.y);
+        const p2 = this.worldToScreen(c2.x, c2.y);
+        
+        const x = Math.min(p1.x, p2.x);
+        const y = Math.min(p1.y, p2.y);
+        const w = Math.abs(p2.x - p1.x);
+        const h = Math.abs(p2.y - p1.y);
+        
+        if (rect.fill !== 'none') {
+            ctx.fillStyle = this.getColor(rect.fill);
+            ctx.globalAlpha = rect.fillOpacity;
+            ctx.fillRect(x, y, w, h);
+            ctx.globalAlpha = 1;
+        }
+        
+        ctx.strokeStyle = this.getColor(rect.color);
+        ctx.lineWidth = this.getThickness(rect.thickness);
+        ctx.setLineDash(this.getLineDash(rect.lineStyle));
+        
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+    }
+    
+    drawPath(path) {
+        if (path.points.length < 2) return;
+
+        const ctx = this.ctx;
+        const points = path.points.map(p => this.getCoordByName(p)).filter(p => p);
+        if (points.length < 2) return;
+
+        const screenPoints = points.map(p => this.worldToScreen(p.x, p.y));
+
+        if (path.fill !== 'none' && path.closed) {
+            ctx.fillStyle = this.getColor(path.fill);
+            ctx.globalAlpha = path.fillOpacity;
+            ctx.beginPath();
+            ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+            for (let i = 1; i < screenPoints.length; i++) {
+                ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+        ctx.strokeStyle = this.getColor(path.color);
+        ctx.lineWidth = this.getThickness(path.thickness);
+        ctx.setLineDash(this.getLineDash(path.lineStyle));
+
+        ctx.beginPath();
+        ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+        for (let i = 1; i < screenPoints.length; i++) {
+            ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+        }
+        if (path.closed) ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw embedded nodes on each segment
+        for (let i = 0; i < points.length - 1; i++) {
+            const segmentNodes = path.nodes.filter(n => n.segmentIndex === i);
+            for (const node of segmentNodes) {
+                const t = node.position;
+                const nx = points[i].x + t * (points[i+1].x - points[i].x);
+                const ny = points[i].y + t * (points[i+1].y - points[i].y);
+                this.drawLabel(node, nx, ny);
+            }
+        }
+
+        // Draw embedded nodes on closing segment if path is closed
+        if (path.closed && points.length > 2) {
+            const closingIndex = points.length - 1;
+            const closingNodes = path.nodes.filter(n => n.segmentIndex === closingIndex);
+            for (const node of closingNodes) {
+                const t = node.position;
+                const nx = points[closingIndex].x + t * (points[0].x - points[closingIndex].x);
+                const ny = points[closingIndex].y + t * (points[0].y - points[closingIndex].y);
+                this.drawLabel(node, nx, ny);
+            }
+        }
+    }
+    
+    drawBezier(bezier) {
+        const from = this.getCoordByName(bezier.from);
+        const ctrl = this.getCoordByName(bezier.control);
+        const to = this.getCoordByName(bezier.to);
+        if (!from || !ctrl || !to) return;
+        
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(from.x, from.y);
+        const pc = this.worldToScreen(ctrl.x, ctrl.y);
+        const p2 = this.worldToScreen(to.x, to.y);
+        
+        ctx.strokeStyle = this.getColor(bezier.color);
+        ctx.lineWidth = this.getThickness(bezier.thickness);
+        ctx.setLineDash(this.getLineDash(bezier.lineStyle));
+        
+        // Use cubic bezier with same control point twice to match TikZ behavior
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.bezierCurveTo(pc.x, pc.y, pc.x, pc.y, p2.x, p2.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw control handle if selected
+        if (this.selectedObject === bezier) {
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(pc.x, pc.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Control point marker
+            ctx.strokeStyle = this.getColor(bezier.color);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pc.x, pc.y, 6, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    drawGrid(grid) {
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(grid.xMin, grid.yMax);
+        const p2 = this.worldToScreen(grid.xMax, grid.yMin);
+        
+        ctx.strokeStyle = this.getColor(grid.color);
+        ctx.lineWidth = this.getThickness(grid.thickness);
+        
+        const stepScreen = grid.step * this.zoom;
+        
+        ctx.beginPath();
+        for (let x = grid.xMin; x <= grid.xMax; x += grid.step) {
+            const sx = this.worldToScreen(x, 0).x;
+            ctx.moveTo(sx, p1.y);
+            ctx.lineTo(sx, p2.y);
+        }
+        for (let y = grid.yMin; y <= grid.yMax; y += grid.step) {
+            const sy = this.worldToScreen(0, y).y;
+            ctx.moveTo(p1.x, sy);
+            ctx.lineTo(p2.x, sy);
+        }
+        ctx.stroke();
+    }
+    
+    drawLabel(node, wx, wy) {
+        const ctx = this.ctx;
+        const pos = this.worldToScreen(wx, wy);
+        const color = this.getColor(node.color || 'black');
+        const fontSize = node.fontSize || 'normal';
+        const text = node.text ? node.text : node.label;
+        const anchor = node.anchor ? node.anchor : (node.position ? node.position : node.labelPosition);
+
+        // Calculate offset based on position
+        let offsetX = 0, offsetY = 0;
+        const offset = 15;
+
+        if (anchor.includes('above')) offsetY = -offset;
+        if (anchor.includes('below')) offsetY = offset;
+        if (anchor.includes('left')) offsetX = -offset;
+        if (anchor.includes('right')) offsetX = offset;
+
+        // Try to get cached LaTeX render
+        const cacheKey = `${text}::${color}::${fontSize}`;
+        const cached = this.latexCache.get(cacheKey);
+
+        if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
+            // Draw rendered LaTeX image
+            const drawX = pos.x + offsetX - cached.width / 2;
+            const drawY = pos.y + offsetY - cached.height / 2;
+
+            // Draw contour stroke if present
+            if (cached.hasContour && cached.contourColor) {
+                const contourColor = this.getColor(cached.contourColor);
+                // Work at image resolution (2x) for proper stroke scaling
+                const imageScale = cached.img.naturalWidth / cached.width;
+                const strokeWidth = 0.8 * imageScale;
+
+                // Create temporary canvas at image resolution
+                const tempCanvas = document.createElement('canvas');
+                const imgWidth = cached.img.naturalWidth;
+                const imgHeight = cached.img.naturalHeight;
+                tempCanvas.width = imgWidth + strokeWidth * 4;
+                tempCanvas.height = imgHeight + strokeWidth * 4;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // Draw the image multiple times offset to create stroke effect
+                const offset = strokeWidth;
+                tempCtx.globalCompositeOperation = 'source-over';
+
+                // Draw stroke in 8 directions
+                for (let dx = -offset; dx <= offset; dx++) {
+                    for (let dy = -offset; dy <= offset; dy++) {
+                        if (dx !== 0 || dy !== 0) {
+                            tempCtx.drawImage(cached.img, offset * 2 + dx, offset * 2 + dy);
+                        }
+                    }
+                }
+
+                // Flood fill the stroked area with contour color
+                tempCtx.globalCompositeOperation = 'source-in';
+                tempCtx.fillStyle = contourColor;
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+                // Draw the filled stroke to main canvas (will scale back to display size)
+                const displayOffset = offset * 2 / imageScale;
+                ctx.drawImage(tempCanvas, drawX - displayOffset, drawY - displayOffset,
+                             cached.width + displayOffset * 2, cached.height + displayOffset * 2);
+            }
+
+            ctx.drawImage(cached.img, drawX, drawY, cached.width, cached.height);
+        } else {
+            // Queue for rendering and show plain text as fallback
+            this.queueLatexRender(text, color, fontSize);
+
+            ctx.fillStyle = color;
+            ctx.font = this.getFontSizePixels(fontSize) + ' serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, pos.x + offsetX, pos.y + offsetY);
+        }
+    }
+
+    drawSelectionHighlight(obj) {
+        const ctx = this.ctx;
+        ctx.strokeStyle = '#61afef';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        
+        if (obj instanceof TikZCoordinate) {
+            const pos = this.worldToScreen(obj.x, obj.y);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 12, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+            const from = this.getCoordByName(obj.from);
+            const to = this.getCoordByName(obj.to);
+            if (from && to) {
+                const p1 = this.worldToScreen(from.x, from.y);
+                const p2 = this.worldToScreen(to.x, to.y);
+                ctx.lineWidth = 6;
+                ctx.globalAlpha = 0.3;
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+        }
+        else if (obj instanceof TikZCircle) {
+            const center = this.getCoordByName(obj.center);
+            if (center) {
+                const pos = this.worldToScreen(center.x, center.y);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, obj.radius * this.zoom + 4, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        
+        ctx.setLineDash([]);
+    }
+    
+    drawTempGeometry(snapped) {
+        const ctx = this.ctx;
+        ctx.strokeStyle = '#61afef';
+        ctx.fillStyle = '#61afef';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        
+        if (this.currentTool === 'line' || this.currentTool === 'vector') {
+            if (this.tempPoints.length === 1) {
+                const from = this.getCoordByName(this.tempPoints[0]);
+                if (from) {
+                    const p1 = this.worldToScreen(from.x, from.y);
+                    const p2 = this.worldToScreen(snapped.x, snapped.y);
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            }
+        }
+        else if (this.currentTool === 'circle') {
+            if (this.tempPoints.length === 1) {
+                const center = this.tempPoints[0];
+                const pos = this.worldToScreen(center.x, center.y);
+                const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y) * this.zoom;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        else if (this.currentTool === 'arc') {
+            if (this.tempPoints.length >= 1) {
+                const center = this.tempPoints[0];
+                const pos = this.worldToScreen(center.x, center.y);
+
+                if (this.tempPoints.length === 1) {
+                    // Drawing radius/start angle
+                    const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y) * this.zoom;
+                    const startAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
+
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    // Display start angle near cursor
+                    const cursorPos = this.worldToScreen(snapped.x, snapped.y);
+                    ctx.save();
+                    ctx.fillStyle = '#61afef';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.fillText(`${startAngle.toFixed(1)}°`, cursorPos.x + 15, cursorPos.y - 10);
+                    ctx.restore();
+                } else {
+                    // Drawing end angle
+                    const { radius, startAngle } = this.tempPoints[1];
+                    const endAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
+                    const r = radius * this.zoom;
+
+                    // Calculate swept angle
+                    let sweptAngle = endAngle - startAngle;
+                    // Normalize to [0, 360]
+                    while (sweptAngle < 0) sweptAngle += 360;
+                    while (sweptAngle > 360) sweptAngle -= 360;
+
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, r, -startAngle * Math.PI / 180, -endAngle * Math.PI / 180, true);
+                    ctx.stroke();
+
+                    // Display angles near cursor
+                    const cursorPos = this.worldToScreen(snapped.x, snapped.y);
+                    ctx.save();
+                    ctx.fillStyle = '#61afef';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.fillText(`${endAngle.toFixed(1)}°`, cursorPos.x + 15, cursorPos.y - 25);
+                    ctx.fillStyle = '#98c379';
+                    ctx.fillText(`Δ ${sweptAngle.toFixed(1)}°`, cursorPos.x + 15, cursorPos.y - 10);
+                    ctx.restore();
+                }
+            }
+        }
+        else if (this.currentTool === 'rect') {
+            if (this.tempPoints.length === 1) {
+                const from = this.getCoordByName(this.tempPoints[0]);
+                if (from) {
+                    const p1 = this.worldToScreen(from.x, from.y);
+                    const p2 = this.worldToScreen(snapped.x, snapped.y);
+                    ctx.strokeRect(
+                        Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
+                        Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)
+                    );
+                }
+            }
+        }
+        else if (this.currentTool === 'path') {
+            if (this.tempPoints.length >= 1) {
+                ctx.beginPath();
+                for (let i = 0; i < this.tempPoints.length; i++) {
+                    const coord = this.getCoordByName(this.tempPoints[i]);
+                    if (coord) {
+                        const p = this.worldToScreen(coord.x, coord.y);
+                        if (i === 0) ctx.moveTo(p.x, p.y);
+                        else ctx.lineTo(p.x, p.y);
+                    }
+                }
+                const p = this.worldToScreen(snapped.x, snapped.y);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+            }
+        }
+        else if (this.currentTool === 'bezier') {
+            if (this.tempPoints.length >= 1) {
+                const from = this.getCoordByName(this.tempPoints[0]);
+                if (from) {
+                    const p1 = this.worldToScreen(from.x, from.y);
+                    const p2 = this.worldToScreen(snapped.x, snapped.y);
+                    
+                    if (this.tempPoints.length === 1) {
+                        // Drawing to control point
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                    } else {
+                        // Drawing curve to end point - use cubic bezier
+                        const ctrl = this.getCoordByName(this.tempPoints[1]);
+                        if (ctrl) {
+                            const pc = this.worldToScreen(ctrl.x, ctrl.y);
+                            ctx.beginPath();
+                            ctx.moveTo(p1.x, p1.y);
+                            ctx.bezierCurveTo(pc.x, pc.y, pc.x, pc.y, p2.x, p2.y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+        }
+        else if (this.currentTool === 'grid') {
+            if (this.tempPoints.length === 1) {
+                const p1 = this.worldToScreen(this.tempPoints[0].x, this.tempPoints[0].y);
+                const p2 = this.worldToScreen(snapped.x, snapped.y);
+                ctx.strokeRect(
+                    Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
+                    Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)
+                );
+            }
+        }
+        
+        ctx.setLineDash([]);
+    }
+    
+    // ========================================================================
+    // Properties Panel
+    // ========================================================================
+    
+    updatePropertiesPanel() {
+        const panel = document.getElementById('propertiesPanel');
+        
+        if (!this.selectedObject) {
+            panel.innerHTML = '<div class="no-selection">No object selected</div>';
+            return;
+        }
+        
+        const obj = this.selectedObject;
+        let html = '';
+        
+        // Object type header
+        const typeNames = {
+            'coord': 'Point', 'line': 'Segment', 'vec': 'Vector',
+            'circle': 'Circle', 'arc': 'Arc', 'rect': 'Rectangle',
+            'path': 'Path', 'bezier': 'Bezier Curve', 'label': 'Label', 'grid': 'Grid'
+        };
+        
+        html += `<div class="property-row">
+            <span class="property-label">Type:</span>
+            <span style="color:#61afef;font-weight:500;">${typeNames[obj.type] || obj.type}</span>
+        </div>`;
+        
+        // Type-specific properties
+        if (obj instanceof TikZCoordinate) {
+            html += this.renderCoordProperties(obj);
+        } else if (obj instanceof TikZSegment) {
+            html += this.renderSegmentProperties(obj);
+        } else if (obj instanceof TikZVector) {
+            html += this.renderVectorProperties(obj);
+        } else if (obj instanceof TikZCircle) {
+            html += this.renderCircleProperties(obj);
+        } else if (obj instanceof TikZArc) {
+            html += this.renderArcProperties(obj);
+        } else if (obj instanceof TikZRectangle) {
+            html += this.renderRectProperties(obj);
+        } else if (obj instanceof TikZPath) {
+            html += this.renderPathProperties(obj);
+        } else if (obj instanceof TikZBezier) {
+            html += this.renderBezierProperties(obj);
+        } else if (obj instanceof TikZLabel) {
+            html += this.renderLabelProperties(obj);
+        } else if (obj instanceof TikZGrid) {
+            html += this.renderGridProperties(obj);
+        }
+        
+        panel.innerHTML = html;
+
+        // Set up event listeners
+        this.setupPropertyListeners();
+
+        // Update label preview if this is a label
+        if (obj instanceof TikZLabel) {
+            this.updateLabelPreview();
+        }
+    }
+    
+    renderColorSelect(currentColor, propertyName) {
+        let options = Object.keys(TIKZ_COLORS).map(c => 
+            `<option value="${c}" ${currentColor === c ? 'selected' : ''}>${c}</option>`
+        ).join('');
+        
+        if (Object.keys(this.customColors).length > 0) {
+            options += '<option disabled>── custom ──</option>';
+            options += Object.keys(this.customColors).map(c => 
+                `<option value="${c}" ${currentColor === c ? 'selected' : ''}>${c}</option>`
+            ).join('');
+        }
+        
+        const hex = this.getColor(currentColor);
+        
+        return `<div class="color-row">
+            <div class="color-swatch" style="background:${hex};"></div>
+            <select data-prop="${propertyName}">${options}</select>
+            <button class="btn-small" onclick="app.openColorPicker('${propertyName}')" title="Add custom color">+</button>
+        </div>`;
+    }
+    
+    renderThicknessSelect(currentThickness, propertyName) {
+        const options = Object.keys(THICKNESS_VALUES).map(t =>
+            `<option value="${t}" ${currentThickness === t ? 'selected' : ''}>${t}</option>`
+        ).join('');
+        return `<select data-prop="${propertyName}">${options}</select>`;
+    }
+    
+    renderLineStyleSelect(currentStyle, propertyName) {
+        const styles = [
+            'solid', 'dashed', 'dotted', 'dashdotted', 'dashdotdotted',
+            'loosely dashed', 'densely dashed',
+            'loosely dotted', 'densely dotted',
+            'loosely dashdotted', 'densely dashdotted'
+        ];
+        const options = styles.map(s =>
+            `<option value="${s}" ${currentStyle === s ? 'selected' : ''}>${s}</option>`
+        ).join('');
+        return `<select data-prop="${propertyName}">${options}</select>`;
+    }
+
+    renderFontSizeSelect(currentSize, propertyName) {
+        const sizes = [
+            'tiny', 'scriptsize', 'footnotesize', 'small', 'normal',
+            'large', 'Large', 'LARGE', 'huge', 'Huge'
+        ];
+        const options = sizes.map(s =>
+            `<option value="${s}" ${currentSize === s ? 'selected' : ''}>${s}</option>`
+        ).join('');
+        return `<select data-prop="${propertyName}">${options}</select>`;
+    }
+    
+    renderCoordSelect(currentCoord, propertyName, exclude = []) {
+        const coords = this.objects.filter(o => o instanceof TikZCoordinate && !exclude.includes(o.name));
+        const options = coords.map(c => 
+            `<option value="${c.name}" ${currentCoord === c.name ? 'selected' : ''}>${c.name}</option>`
+        ).join('');
+        return `<select data-prop="${propertyName}">${options}</select>`;
+    }
+    
+    renderCoordProperties(coord) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${coord.name}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Position:</span>
+                <div class="property-input coord-inputs">
+                    <input type="number" step="0.25" data-prop="x" value="${coord.x}">
+                    <input type="number" step="0.25" data-prop="y" value="${coord.y}">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Show:</span>
+                <div class="property-input checkbox-row">
+                    <input type="checkbox" data-prop="showPoint" ${coord.showPoint ? 'checked' : ''}>
+                    <span>Visible point</span>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(coord.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Size:</span>
+                <div class="property-input"><input type="number" min="1" max="10" data-prop="pointSize" value="${coord.pointSize}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Label:</span>
+                <div class="property-input"><input type="text" data-prop="label" value="${coord.label || ''}" placeholder="e.g. $P_1$"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Label Pos:</span>
+                <div class="property-input">
+                    <select data-prop="anchor">
+                        <option value="above" ${coord.anchor === 'above' ? 'selected' : ''}>above</option>
+                        <option value="below" ${coord.anchor === 'below' ? 'selected' : ''}>below</option>
+                        <option value="left" ${coord.anchor === 'left' ? 'selected' : ''}>left</option>
+                        <option value="right" ${coord.anchor === 'right' ? 'selected' : ''}>right</option>
+                        <option value="above left" ${coord.anchor === 'above left' ? 'selected' : ''}>above left</option>
+                        <option value="above right" ${coord.anchor === 'above right' ? 'selected' : ''}>above right</option>
+                        <option value="below left" ${coord.anchor === 'below left' ? 'selected' : ''}>below left</option>
+                        <option value="below right" ${coord.anchor === 'below right' ? 'selected' : ''}>below right</option>
+                    </select>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderSegmentProperties(seg) {
+        return `
+            <div class="property-row">
+                <span class="property-label">From:</span>
+                <div class="property-input">${this.renderCoordSelect(seg.from, 'from', [seg.to])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">To:</span>
+                <div class="property-input">${this.renderCoordSelect(seg.to, 'to', [seg.from])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(seg.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(seg.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(seg.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Labels:</span>
+                <div class="property-input">
+                    <button class="btn" onclick="app.addEmbeddedNode()" style="width:100%;">+ Add Label</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderVectorProperties(vec) {
+        return `
+            <div class="property-row">
+                <span class="property-label">From:</span>
+                <div class="property-input">${this.renderCoordSelect(vec.from, 'from', [vec.to])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">To:</span>
+                <div class="property-input">${this.renderCoordSelect(vec.to, 'to', [vec.from])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(vec.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(vec.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(vec.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Arrow:</span>
+                <div class="property-input">
+                    <select data-prop="arrowEnd">
+                        <option value="-Stealth" ${vec.arrowEnd === '-Stealth' ? 'selected' : ''}>-Stealth (end)</option>
+                        <option value="Stealth-" ${vec.arrowEnd === 'Stealth-' ? 'selected' : ''}>Stealth- (start)</option>
+                        <option value="Stealth-Stealth" ${vec.arrowEnd === 'Stealth-Stealth' ? 'selected' : ''}>Stealth-Stealth (both)</option>
+                        <option value="->" ${vec.arrowEnd === '->' ? 'selected' : ''}>-> (end)</option>
+                        <option value="<-" ${vec.arrowEnd === '<-' ? 'selected' : ''}>← (start)</option>
+                        <option value="<->" ${vec.arrowEnd === '<->' ? 'selected' : ''}>↔ (both)</option>
+                        <option value="-latex" ${vec.arrowEnd === '-latex' ? 'selected' : ''}>-latex</option>
+                        <option value="latex-" ${vec.arrowEnd === 'latex-' ? 'selected' : ''}>latex-</option>
+                        <option value="latex-latex" ${vec.arrowEnd === 'latex-latex' ? 'selected' : ''}>latex-latex</option>
+                    </select>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Arrow Size:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${vec.arrowSize}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Labels:</span>
+                <div class="property-input">
+                    <button class="btn" onclick="app.addEmbeddedNode()" style="width:100%;">+ Add Label</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderCircleProperties(circle) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Center:</span>
+                <div class="property-input">${this.renderCoordSelect(circle.center, 'center')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Radius:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${circle.radius}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(circle.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(circle.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(circle.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Fill:</span>
+                <div class="property-input">${this.renderColorSelect(circle.fill, 'fill')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${circle.fillOpacity}"></div>
+            </div>
+        `;
+    }
+    
+    renderArcProperties(arc) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Center:</span>
+                <div class="property-input">${this.renderCoordSelect(arc.center, 'center')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Radius:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${arc.radius}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Start °:</span>
+                <div class="property-input"><input type="number" step="5" data-prop="startAngle" value="${arc.startAngle}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">End °:</span>
+                <div class="property-input"><input type="number" step="5" data-prop="endAngle" value="${arc.endAngle}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(arc.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(arc.thickness, 'thickness')}</div>
+            </div>
+        `;
+    }
+    
+    renderRectProperties(rect) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Corner 1:</span>
+                <div class="property-input">${this.renderCoordSelect(rect.corner1, 'corner1', [rect.corner2])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Corner 2:</span>
+                <div class="property-input">${this.renderCoordSelect(rect.corner2, 'corner2', [rect.corner1])}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(rect.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(rect.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(rect.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Fill:</span>
+                <div class="property-input">${this.renderColorSelect(rect.fill, 'fill')}</div>
+            </div>
+        `;
+    }
+    
+    renderPathProperties(path) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Points:</span>
+                <div class="property-input"><span style="color:#888;">${path.points.join(' → ')}</span></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Closed:</span>
+                <div class="property-input checkbox-row">
+                    <input type="checkbox" data-prop="closed" ${path.closed ? 'checked' : ''}>
+                    <span>Close path</span>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(path.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(path.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Fill:</span>
+                <div class="property-input">${this.renderColorSelect(path.fill, 'fill')}</div>
+            </div>
+        `;
+    }
+    
+    renderBezierProperties(bezier) {
+        return `
+            <div class="property-row">
+                <span class="property-label">From:</span>
+                <div class="property-input">${this.renderCoordSelect(bezier.from, 'from')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Control:</span>
+                <div class="property-input">${this.renderCoordSelect(bezier.control, 'control')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">To:</span>
+                <div class="property-input">${this.renderCoordSelect(bezier.to, 'to')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(bezier.color, 'color')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(bezier.thickness, 'thickness')}</div>
+            </div>
+        `;
+    }
+    
+    renderLabelProperties(label) {
+        return `
+            <div class="property-row">
+                <span class="property-label">At:</span>
+                <div class="property-input">${this.renderCoordSelect(label.at, 'at')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Text:</span>
+                <div class="property-input"><textarea data-prop="text">${label.text}</textarea></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Preview:</span>
+                <div class="property-input" style="min-height:40px;display:flex;align-items:center;justify-content:center;background:#1e1e1e;border:1px solid #3e3e3e;border-radius:3px;padding:8px;">
+                    <div id="labelPreview" style="color:${this.getColor(label.color)};font-family:serif;">Loading...</div>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Position:</span>
+                <div class="property-input">
+                    <select data-prop="position">
+                        <option value="above" ${label.position === 'above' ? 'selected' : ''}>above</option>
+                        <option value="below" ${label.position === 'below' ? 'selected' : ''}>below</option>
+                        <option value="left" ${label.position === 'left' ? 'selected' : ''}>left</option>
+                        <option value="right" ${label.position === 'right' ? 'selected' : ''}>right</option>
+                        <option value="above left" ${label.position === 'above left' ? 'selected' : ''}>above left</option>
+                        <option value="above right" ${label.position === 'above right' ? 'selected' : ''}>above right</option>
+                        <option value="below left" ${label.position === 'below left' ? 'selected' : ''}>below left</option>
+                        <option value="below right" ${label.position === 'below right' ? 'selected' : ''}>below right</option>
+                    </select>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Font Size:</span>
+                <div class="property-input">${this.renderFontSizeSelect(label.fontSize || 'normal', 'fontSize')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(label.color, 'color')}</div>
+            </div>
+        `;
+    }
+    
+    renderGridProperties(grid) {
+        return `
+            <div class="property-row">
+                <span class="property-label">X Range:</span>
+                <div class="property-input coord-inputs">
+                    <input type="number" step="1" data-prop="xMin" value="${grid.xMin}">
+                    <input type="number" step="1" data-prop="xMax" value="${grid.xMax}">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Y Range:</span>
+                <div class="property-input coord-inputs">
+                    <input type="number" step="1" data-prop="yMin" value="${grid.yMin}">
+                    <input type="number" step="1" data-prop="yMax" value="${grid.yMax}">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Step:</span>
+                <div class="property-input"><input type="number" step="0.5" min="0.1" data-prop="step" value="${grid.step}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(grid.color, 'color')}</div>
+            </div>
+        `;
+    }
+    
+    setupPropertyListeners() {
+        const panel = document.getElementById('propertiesPanel');
+
+        // Input/select changes
+        panel.querySelectorAll('input, select, textarea').forEach(el => {
+            el.addEventListener('change', () => {
+                this.handlePropertyChange(el);
+
+                // Update color swatch if this is a color select
+                if (el.tagName === 'SELECT' && el.parentElement.classList.contains('color-row')) {
+                    const swatch = el.parentElement.querySelector('.color-swatch');
+                    if (swatch) {
+                        const colorName = el.value;
+                        const hex = this.getColor(colorName);
+                        swatch.style.background = hex;
+                    }
+                }
+
+                // Update label preview if relevant property changed
+                if (this.selectedObject instanceof TikZLabel &&
+                    (el.dataset.prop === 'text' || el.dataset.prop === 'fontSize' || el.dataset.prop === 'color')) {
+                    this.updateLabelPreview();
+                }
+            });
+            el.addEventListener('input', () => {
+                if (el.tagName === 'TEXTAREA') {
+                    this.handlePropertyChange(el);
+                    // Update label preview on text input
+                    if (this.selectedObject instanceof TikZLabel) {
+                        this.updateLabelPreview();
+                    }
+                }
+            });
+        });
+    }
+
+    async updateLabelPreview() {
+        const previewDiv = document.getElementById('labelPreview');
+        if (!previewDiv || !this.selectedObject || !(this.selectedObject instanceof TikZLabel)) return;
+
+        const label = this.selectedObject;
+        const text = label.text;
+        const color = this.getColor(label.color);
+        const fontSize = label.fontSize || 'normal';
+
+        // Show loading state
+        previewDiv.innerHTML = 'Rendering...';
+        previewDiv.style.color = color;
+
+        // Queue LaTeX render
+        this.queueLatexRender(text, color, fontSize);
+
+        // Wait a bit for MathJax to process, then update preview
+        setTimeout(() => {
+            const cacheKey = `${text}::${color}::${fontSize}`;
+            const cached = this.latexCache.get(cacheKey);
+
+            if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
+                // Clear and show image
+                previewDiv.innerHTML = '';
+                const img = document.createElement('img');
+                img.src = cached.img.src;
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+                previewDiv.appendChild(img);
+            } else {
+                // Fallback to text
+                previewDiv.textContent = text;
+                previewDiv.style.fontSize = this.getFontSizePixels(fontSize);
+            }
+        }, 500);
+    }
+
+    handlePropertyChange(el) {
+        if (!this.selectedObject) return;
+        
+        const prop = el.dataset.prop;
+        if (!prop) return;
+        
+        let value = el.type === 'checkbox' ? el.checked : el.value;
+        if (el.type === 'number') value = parseFloat(value);
+        
+        // Clear LaTeX cache if text-related property changed
+        if (prop === 'text' || prop === 'label' || prop === 'fontSize') {
+            // Remove old cached version
+            const oldText = this.selectedObject['text'] || this.selectedObject['label'];
+            if (oldText) {
+                // Clear any cached renders for the old text
+                for (const key of this.latexCache.keys()) {
+                    if (key.startsWith(oldText + '::')) {
+                        this.latexCache.delete(key);
+                    }
+                }
+            }
+        }
+        
+        // Handle name change specially for coordinates
+        if (prop === 'name' && this.selectedObject instanceof TikZCoordinate) {
+            const oldName = this.selectedObject.name;
+            const newName = value;
+            
+            // Update all references
+            this.objects.forEach(obj => {
+                if (obj.from === oldName) obj.from = newName;
+                if (obj.to === oldName) obj.to = newName;
+                if (obj.center === oldName) obj.center = newName;
+                if (obj.corner1 === oldName) obj.corner1 = newName;
+                if (obj.corner2 === oldName) obj.corner2 = newName;
+                if (obj.control === oldName) obj.control = newName;
+                if (obj.at === oldName) obj.at = newName;
+                if (obj.points) {
+                    obj.points = obj.points.map(p => p === oldName ? newName : p);
+                }
+            });
+        }
+        
+        this.selectedObject[prop] = value;
+        this.render();
+        this.updateObjectList();
+    }
+    
+    addEmbeddedNode() {
+        if (!this.selectedObject || !this.selectedObject.nodes) {
+            return;
+        }
+
+        const node = new TikZEmbeddedNode('label', 0.5, 'above');
+        this.selectedObject.nodes.push(node);
+        // this.render();
+        this.updateObjectList();
+
+        // Open editor for the new node
+        this.openNodeEditor(this.selectedObject, node);
+    }
+    
+    openNodeEditor(parentObj, node) {
+        this.editingNodeParent = parentObj;
+        this.editingNode = node;
+
+        // Get modal first and make it visible immediately
+        const modal = document.getElementById('nodeEditorModal');
+        if (!modal) {
+            console.error('FATAL: Modal not found!');
+            this.showToast('Error: Unable to open label editor.', 'error');
+            return;
+        }
+
+        // Make modal visible
+        modal.classList.add('visible');
+
+        try {
+            // Populate modal fields
+            const nodeTextEl = document.getElementById('nodeText');
+            if (nodeTextEl) nodeTextEl.value = node.text;
+
+            const nodePositionEl = document.getElementById('nodePosition');
+            if (nodePositionEl) nodePositionEl.value = node.position;
+
+            const nodePosValueEl = document.getElementById('nodePosValue');
+            if (nodePosValueEl) nodePosValueEl.textContent = node.position;
+
+            const nodeAnchorEl = document.getElementById('nodeAnchor');
+            if (nodeAnchorEl) nodeAnchorEl.value = node.anchor;
+
+            const nodeFontSizeEl = document.getElementById('nodeFontSize');
+            if (nodeFontSizeEl) nodeFontSizeEl.value = node.fontSize;
+
+            // Populate color dropdown
+            const colorSelect = document.getElementById('nodeColor');
+            if (colorSelect) {
+                // Clear existing options first
+                colorSelect.innerHTML = '';
+
+                // Add TIKZ_COLORS
+                for (const colorName of Object.keys(TIKZ_COLORS)) {
+                    const option = document.createElement('option');
+                    option.value = colorName;
+                    option.textContent = colorName;
+                    if (node.color === colorName) option.selected = true;
+                    colorSelect.appendChild(option);
+                }
+
+                // Add custom colors if any
+                if (Object.keys(this.customColors).length > 0) {
+                    const separator = document.createElement('option');
+                    separator.disabled = true;
+                    separator.textContent = '── custom ──';
+                    colorSelect.appendChild(separator);
+
+                    for (const colorName of Object.keys(this.customColors)) {
+                        const option = document.createElement('option');
+                        option.value = colorName;
+                        option.textContent = colorName;
+                        if (node.color === colorName) option.selected = true;
+                        colorSelect.appendChild(option);
+                    }
+                }
+            }
+
+            // Set up event listeners
+            const textInput = document.getElementById('nodeText');
+            if (textInput) {
+                textInput.oninput = () => this.updateNodePreview();
+            }
+
+            const posInput = document.getElementById('nodePosition');
+            if (posInput) {
+                posInput.oninput = (e) => {
+                    const posVal = document.getElementById('nodePosValue');
+                    if (posVal) posVal.textContent = e.target.value;
+                };
+            }
+
+            // Update preview
+            this.updateNodePreview();
+        } catch (err) {
+            console.error('Error populating modal:', err);
+        }
+    }
+    
+    updateNodePreview() {
+        const text = document.getElementById('nodeText').value;
+        const preview = document.getElementById('nodeLatexPreview');
+        if (preview) {
+            preview.innerHTML = text;
+            if (window.MathJax && MathJax.typesetPromise && this.mathJaxReady) {
+                // Add timeout protection to prevent hanging
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('MathJax timeout')), 2000)
+                );
+
+                Promise.race([
+                    MathJax.typesetPromise([preview]),
+                    timeout
+                ]).catch(err => {
+                    console.warn('MathJax preview error:', err.message);
+                    // Continue anyway - text is already in the preview element
+                });
+            }
+        }
+    }
+    
+    closeNodeEditor() {
+        document.getElementById('nodeEditorModal').classList.remove('visible');
+        this.editingNode = null;
+        this.editingNodeParent = null;
+    }
+    
+    saveNode() {
+        if (!this.editingNode) return;
+
+        // Clear old cached render (all variations of text/color/fontSize)
+        const oldText = this.editingNode.text;
+        for (const key of this.latexCache.keys()) {
+            if (key.startsWith(oldText + '::')) {
+                this.latexCache.delete(key);
+            }
+        }
+
+        this.editingNode.text = document.getElementById('nodeText').value;
+        this.editingNode.position = parseFloat(document.getElementById('nodePosition').value);
+        this.editingNode.anchor = document.getElementById('nodeAnchor').value;
+        this.editingNode.fontSize = document.getElementById('nodeFontSize').value;
+        this.editingNode.color = document.getElementById('nodeColor').value;
+
+        this.closeNodeEditor();
+        this.render();
+        this.updateObjectList();
+    }
+    
+    deleteNode() {
+        if (!this.editingNode || !this.editingNodeParent) return;
+        
+        const idx = this.editingNodeParent.nodes.indexOf(this.editingNode);
+        if (idx >= 0) {
+            this.editingNodeParent.nodes.splice(idx, 1);
+        }
+        
+        this.closeNodeEditor();
+        this.render();
+        this.updateObjectList();
+    }
+    
+    // ========================================================================
+    // Object List
+    // ========================================================================
+    
+    updateObjectList() {
+        const list = document.getElementById('objectList');
+        let html = '';
+        
+        for (const obj of this.objects) {
+            const isSelected = obj === this.selectedObject;
+            const icon = this.getObjectIcon(obj);
+            const name = this.getObjectDisplayName(obj);
+            const hasSubObjects = typeof obj.getSubObjects === 'function' && obj.getSubObjects().length > 0;
+            
+            html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}" 
+                         data-id="${obj.id}" draggable="true">
+                <span class="drag-handle">⠿</span>
+                <span class="expand-btn" onclick="event.stopPropagation(); app.toggleExpand('${obj.id}')">${hasSubObjects ? (obj.expanded ? '▼' : '◢') : ''}</span>
+                <span class="obj-icon">${icon}</span>
+                <span class="obj-name">${name}</span>
+            </div>`;
+            
+            // Render subobjects if expanded
+            if (hasSubObjects && obj.expanded) {
+                const subs = obj.getSubObjects();
+                for (let i = 0; i < subs.length; i++) {
+                    const sub = subs[i];
+                    const subSelected = isSelected && this.selectedSubIndex === i;
+                    html += `<div class="object-item subobject ${subSelected ? 'selected' : ''}" 
+                                 data-id="${obj.id}" data-sub="${i}">
+                        <!-- span class="drag-handle">⠿</span -->
+                        <span class="obj-icon">${this.getSubIcon(sub.type)}</span>
+                        <span class="obj-name">${sub.label}</span>
+                    </div>`;
+                }
+            }
+        }
+        
+        list.innerHTML = html;
+        
+        // Set up click handlers
+        list.querySelectorAll('.object-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.dataset.id;
+                const subIdx = el.dataset.sub;
+                
+                const obj = this.objects.find(o => o.id === id);
+                
+                if (subIdx !== undefined) {
+                    // Clicking on a subobject
+                    const subs = obj.getSubObjects();
+                    const sub = subs[parseInt(subIdx)];
+                    
+                    if (sub && sub.type === 'node') {
+                        // Open node editor modal
+                        this.openNodeEditor(obj, sub.node);
+                        return;
+                    } else if (sub && sub.type === 'ref') {
+                        // Select the referenced coordinate
+                        const refCoord = this.getCoordByName(sub.ref);
+                        if (refCoord) {
+                            this.selectedObject = refCoord;
+                            this.selectedSubIndex = -1;
+                        }
+                    }
+                } else {
+                    this.selectedObject = obj;
+                    this.selectedSubIndex = -1;
+                }
+                
+                this.updatePropertiesPanel();
+                this.updateObjectList();
+                this.render();
+            });
+        });
+        
+        this.updateObjectCount();
+    }
+    
+    getObjectIcon(obj) {
+        if (obj instanceof TikZCoordinate) return '•';
+        if (obj instanceof TikZSegment) return '─';
+        if (obj instanceof TikZVector) return '→';
+        if (obj instanceof TikZCircle) return '○';
+        if (obj instanceof TikZArc) return '⌒';
+        if (obj instanceof TikZRectangle) return '▭';
+        if (obj instanceof TikZPath) return '⟋';
+        if (obj instanceof TikZBezier) return '∿';
+        if (obj instanceof TikZLabel) return 'A';
+        if (obj instanceof TikZGrid) return '#';
+        return '?';
+    }
+    
+    getSubIcon(type) {
+        switch (type) {
+            case 'ref': return '•';
+            case 'segment': return '─';
+            case 'node': return '"';
+            case 'control': return '◇';
+            default: return '·';
+        }
+    }
+    
+    getObjectDisplayName(obj) {
+        if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x}, ${obj.y})`;
+        if (obj instanceof TikZSegment) return `${obj.from} → ${obj.to}`;
+        if (obj instanceof TikZVector) return `${obj.from} → ${obj.to}`;
+        if (obj instanceof TikZCircle) return `${obj.center}, r=${obj.radius}`;
+        if (obj instanceof TikZArc) return `${obj.center}, ${obj.startAngle}°-${obj.endAngle}°`;
+        if (obj instanceof TikZRectangle) return `${obj.corner1} × ${obj.corner2}`;
+        if (obj instanceof TikZPath) return `${obj.points.length} points`;
+        if (obj instanceof TikZBezier) return `${obj.from} ~ ${obj.to}`;
+        if (obj instanceof TikZLabel) return `"${obj.text}" at ${obj.at}`;
+        if (obj instanceof TikZGrid) return `grid (${obj.xMin},${obj.yMin})-(${obj.xMax},${obj.yMax})`;
+        return obj.id;
+    }
+    
+    toggleExpand(id) {
+        const obj = this.objects.find(o => o.id === id);
+        if (obj) {
+            obj.expanded = !obj.expanded;
+            this.updateObjectList();
+        }
+    }
+    
+    updateObjectCount() {
+        document.getElementById('objectCount').textContent = this.objects.length;
+    }
+    
+    setupDragDrop() {
+        const list = document.getElementById('objectList');
+
+        let draggedId = null;
+
+        // Click handler for object list items
+        list.addEventListener('click', e => {
+            // Ignore clicks on expand button (it has its own handler)
+            if (e.target.closest('.expand-btn')) return;
+
+            const item = e.target.closest('.object-item');
+            if (!item) return;
+
+            const objId = item.dataset.id;
+            const subIndex = item.dataset.sub;
+
+            const obj = this.objects.find(o => o.id === objId);
+            if (!obj) return;
+
+            // If clicking a subobject (embedded label)
+            if (subIndex !== undefined) {
+                const subIdx = parseInt(subIndex);
+                const subs = obj.getSubObjects();
+                const sub = subs[subIdx];
+
+                if (sub && sub.type === 'node') {
+                    // Clicking embedded label - open editor for this label
+                    this.selectedObject = obj;
+                    this.updatePropertiesPanel();
+                    this.updateObjectList();
+                    this.render();
+
+                    // Use setTimeout to ensure modal opens after UI updates
+                    setTimeout(() => {
+                        this.openNodeEditor(obj, sub.node);
+                    }, 50);
+                    return;
+                } else if (sub && sub.type === 'segment') {
+                    // Clicking on segment - open label editor
+                    this.selectedObject = obj;
+                    this.updatePropertiesPanel();
+                    this.updateObjectList();
+                    this.render();
+
+                    // Auto-open label editor for segments/vectors/paths
+                    // Use type property instead of instanceof since it's more reliable
+                    const hasLabels = (obj.type === 'line' || obj.type === 'vec' || obj.type === 'path');
+
+                    if (hasLabels && obj.nodes !== undefined) {
+                        setTimeout(() => {
+                            // For paths, determine which segment was clicked
+                            let segmentIndex = -1;
+                            if (obj.type === 'path') {
+                                // Count how many segments come before this one in getSubObjects
+                                const subs = obj.getSubObjects();
+                                for (let i = 0; i <= subIdx; i++) {
+                                    if (subs[i] && subs[i].type === 'segment') {
+                                        segmentIndex++;
+                                    }
+                                }
+                            }
+
+                            // For paths, check if this specific segment already has a label
+                            let nodeToEdit = null;
+                            if (obj.type === 'path' && segmentIndex >= 0) {
+                                nodeToEdit = obj.nodes.find(n => n.segmentIndex === segmentIndex);
+                            } else if (obj.type === 'line' || obj.type === 'vec') {
+                                // For regular segments/vectors, use first node
+                                nodeToEdit = obj.nodes.length > 0 ? obj.nodes[0] : null;
+                            }
+
+                            if (nodeToEdit) {
+                                // Open editor for existing label on this segment
+                                this.openNodeEditor(obj, nodeToEdit);
+                            } else {
+                                // Create and open editor for new label
+                                const node = new TikZEmbeddedNode('label', 0.5, 'above');
+                                // For paths, store which segment this label is on
+                                if (obj.type === 'path' && segmentIndex >= 0) {
+                                    node.segmentIndex = segmentIndex;
+                                }
+                                if (!obj.nodes) obj.nodes = [];
+                                obj.nodes.push(node);
+                                this.updateObjectList();
+                                this.openNodeEditor(obj, node);
+                            }
+                        }, 50);
+                    }
+                    return;
+                } else if (sub && sub.type === 'ref') {
+                    // Select the referenced coordinate
+                    const refCoord = this.getCoordByName(sub.ref);
+                    if (refCoord) {
+                        this.selectedObject = refCoord;
+                        this.updatePropertiesPanel();
+                        this.updateObjectList();
+                        this.render();
+                    }
+                    return;
+                }
+            } else {
+                // Clicking main object
+                this.selectedObject = obj;
+                this.updatePropertiesPanel();
+                this.updateObjectList();
+                this.render();
+
+                // If it's a segment/vector, auto-open label editor
+                // For paths, user must click on specific segment subobject
+                // Use type property instead of instanceof
+                if (obj.type === 'line' || obj.type === 'vec') {
+                    // Use setTimeout to ensure modal opens after UI updates
+                    setTimeout(() => {
+                        if (obj.nodes && obj.nodes.length > 0) {
+                            // Open editor for first existing label
+                            this.openNodeEditor(obj, obj.nodes[0]);
+                        } else {
+                            // Create and open editor for new label
+                            const node = new TikZEmbeddedNode('label', 0.5, 'above');
+                            if (!obj.nodes) obj.nodes = [];
+                            obj.nodes.push(node);
+                            this.updateObjectList();
+                            this.openNodeEditor(obj, node);
+                        }
+                    }, 50);
+                }
+            }
+        });
+
+        list.addEventListener('dragstart', e => {
+            const item = e.target.closest('.object-item');
+            if (item) {
+                draggedId = item.dataset.id;
+                item.classList.add('dragging');
+            }
+        });
+
+        list.addEventListener('dragend', e => {
+            const item = e.target.closest('.object-item');
+            if (item) item.classList.remove('dragging');
+            list.querySelectorAll('.object-item').forEach(el => el.classList.remove('drag-over'));
+        });
+
+        list.addEventListener('dragover', e => {
+            e.preventDefault();
+            const item = e.target.closest('.object-item');
+            if (item && !item.classList.contains('dragging')) {
+                list.querySelectorAll('.object-item').forEach(el => el.classList.remove('drag-over'));
+                item.classList.add('drag-over');
+            }
+        });
+
+        list.addEventListener('drop', e => {
+            e.preventDefault();
+            const targetItem = e.target.closest('.object-item');
+            if (targetItem && draggedId) {
+                const targetId = targetItem.dataset.id;
+                if (draggedId !== targetId) {
+                    this.reorderObjects(draggedId, targetId);
+                }
+            }
+            list.querySelectorAll('.object-item').forEach(el => el.classList.remove('drag-over'));
+        });
+    }
+    
+    reorderObjects(draggedId, targetId) {
+        const draggedIdx = this.objects.findIndex(o => o.id === draggedId);
+        const targetIdx = this.objects.findIndex(o => o.id === targetId);
+        
+        if (draggedIdx >= 0 && targetIdx >= 0) {
+            const [dragged] = this.objects.splice(draggedIdx, 1);
+            this.objects.splice(targetIdx, 0, dragged);
+            this.updateObjectList();
+            this.render();
+        }
+    }
+    
+    // ========================================================================
+    // Color Picker
+    // ========================================================================
+    
+    openColorPicker(forProperty) {
+        this.colorPickerProperty = forProperty;
+        document.getElementById('colorPickerModal').classList.add('visible');
+        this.initColorPicker();
+    }
+    
+    closeColorPicker() {
+        document.getElementById('colorPickerModal').classList.remove('visible');
+    }
+    
+    initColorPicker() {
+        const area = document.getElementById('colorPickerArea');
+        const hueSlider = document.getElementById('hueSlider');
+        
+        this.pickerHue = 0;
+        this.pickerSat = 1;
+        this.pickerVal = 1;
+        
+        this.updateColorPickerDisplay();
+        
+        // Area mouse handling
+        let draggingArea = false;
+        area.addEventListener('mousedown', e => {
+            draggingArea = true;
+            this.handleAreaClick(e);
+        });
+        
+        document.addEventListener('mousemove', e => {
+            if (draggingArea) this.handleAreaClick(e);
+        });
+        
+        document.addEventListener('mouseup', () => draggingArea = false);
+        
+        // Hue slider
+        let draggingHue = false;
+        hueSlider.addEventListener('mousedown', e => {
+            draggingHue = true;
+            this.handleHueClick(e);
+        });
+        
+        document.addEventListener('mousemove', e => {
+            if (draggingHue) this.handleHueClick(e);
+        });
+        
+        document.addEventListener('mouseup', () => draggingHue = false);
+        
+        // RGB inputs
+        ['colorR', 'colorG', 'colorB'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => this.updateFromRGB());
+        });
+        
+        document.getElementById('colorHex').addEventListener('input', () => this.updateFromHex());
+    }
+    
+    handleAreaClick(e) {
+        const area = document.getElementById('colorPickerArea');
+        const rect = area.getBoundingClientRect();
+        this.pickerSat = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        this.pickerVal = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+        this.updateColorPickerDisplay();
+    }
+    
+    handleHueClick(e) {
+        const slider = document.getElementById('hueSlider');
+        const rect = slider.getBoundingClientRect();
+        this.pickerHue = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        this.updateColorPickerDisplay();
+    }
+    
+    updateColorPickerDisplay() {
+        const rgb = this.hsvToRgb(this.pickerHue, this.pickerSat, this.pickerVal);
+        const hex = this.rgbToHex(rgb.r, rgb.g, rgb.b);
+        
+        // Update inputs
+        document.getElementById('colorR').value = rgb.r;
+        document.getElementById('colorG').value = rgb.g;
+        document.getElementById('colorB').value = rgb.b;
+        document.getElementById('colorHex').value = hex;
+        
+        // Update preview
+        document.getElementById('colorPreview').style.background = hex;
+        
+        // Update cursors
+        const areaCursor = document.getElementById('colorPickerCursor');
+        areaCursor.style.left = (this.pickerSat * 100) + '%';
+        areaCursor.style.top = ((1 - this.pickerVal) * 100) + '%';
+        
+        const hueCursor = document.getElementById('hueCursor');
+        hueCursor.style.left = (this.pickerHue * 100) + '%';
+        
+        // Update area background
+        const hueColor = this.hsvToRgb(this.pickerHue, 1, 1);
+        const area = document.getElementById('colorPickerArea');
+        area.style.background = `linear-gradient(to top, #000, transparent),
+                                  linear-gradient(to right, #fff, ${this.rgbToHex(hueColor.r, hueColor.g, hueColor.b)})`;
+    }
+    
+    updateFromRGB() {
+        const r = parseInt(document.getElementById('colorR').value) || 0;
+        const g = parseInt(document.getElementById('colorG').value) || 0;
+        const b = parseInt(document.getElementById('colorB').value) || 0;
+        
+        const hsv = this.rgbToHsv(r, g, b);
+        this.pickerHue = hsv.h;
+        this.pickerSat = hsv.s;
+        this.pickerVal = hsv.v;
+        
+        this.updateColorPickerDisplay();
+    }
+    
+    updateFromHex() {
+        const hex = document.getElementById('colorHex').value;
+        const rgb = this.hexToRgb(hex);
+        if (rgb) {
+            const hsv = this.rgbToHsv(rgb.r, rgb.g, rgb.b);
+            this.pickerHue = hsv.h;
+            this.pickerSat = hsv.s;
+            this.pickerVal = hsv.v;
+            this.updateColorPickerDisplay();
+        }
+    }
+    
+    hsvToRgb(h, s, v) {
+        let r, g, b;
+        const i = Math.floor(h * 6);
+        const f = h * 6 - i;
+        const p = v * (1 - s);
+        const q = v * (1 - f * s);
+        const t = v * (1 - (1 - f) * s);
+        
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            case 5: r = v; g = p; b = q; break;
+        }
+        
+        return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+    }
+    
+    rgbToHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, v = max;
+        const d = max - min;
+        s = max === 0 ? 0 : d / max;
+        
+        if (max === min) {
+            h = 0;
+        } else {
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        
+        return { h, s, v };
+    }
+    
+    rgbToHex(r, g, b) {
+        return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('').toUpperCase();
+    }
+    
+    hexToRgb(hex) {
+        const match = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+        return match ? {
+            r: parseInt(match[1], 16),
+            g: parseInt(match[2], 16),
+            b: parseInt(match[3], 16)
+        } : null;
+    }
+    
+    addCustomColor() {
+        const name = document.getElementById('colorName').value.trim();
+        const hex = document.getElementById('colorHex').value;
+
+        if (!name || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) {
+            this.showToast('Please enter a valid color name (letters and numbers, starting with a letter)', 'error');
+            return;
+        }
+
+        if (TIKZ_COLORS[name] || this.customColors[name]) {
+            this.showToast('A color with this name already exists', 'error');
+            return;
+        }
+
+        this.customColors[name] = hex;
+
+        // Set the newly created color on the selected object
+        if (this.selectedObject && this.colorPickerProperty) {
+            this.selectedObject[this.colorPickerProperty] = name;
+        }
+
+        this.closeColorPicker();
+        this.updatePropertiesPanel();
+        this.updateObjectList();
+    }
+    
+    // ========================================================================
+    // Toast Notifications
+    // ========================================================================
+
+    showToast(message, type = 'info', duration = 2000) {
+        // Remove any existing toast
+        const existingToast = document.querySelector('.toast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+
+        // Create new toast
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // Trigger show animation
+        setTimeout(() => toast.classList.add('show'), 10);
+
+        // Auto-hide after duration
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    // ========================================================================
+    // TikZ Export
+    // ========================================================================
+
+    showExport() {
+        const code = this.generateTikZ();
+        document.getElementById('exportCode').value = code;
+        document.getElementById('exportModal').classList.add('visible');
+    }
+    
+    closeExport() {
+        document.getElementById('exportModal').classList.remove('visible');
+    }
+    
+    copyExport() {
+        const textarea = document.getElementById('exportCode');
+        textarea.select();
+        document.execCommand('copy');
+        this.showToast('Copied to clipboard!', 'success');
+    }
+    
+    downloadExport() {
+        const code = document.getElementById('exportCode').value;
+        const blob = new Blob([code], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tikz-drawing.tex';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    generateTikZ() {
+        let lines = [];
+        
+        // Preamble
+        lines.push('\\begin{tikzpicture}[scale=1]');
+        
+        // Custom colors
+        for (const [name, hex] of Object.entries(this.customColors)) {
+            const rgb = this.hexToRgb(hex);
+            if (rgb) {
+                lines.push(`  \\definecolor{${name}}{RGB}{${rgb.r},${rgb.g},${rgb.b}}`);
+            }
+        }
+        
+        if (Object.keys(this.customColors).length > 0) lines.push('');
+        
+        // Separate objects by type for clean output
+        const grids = this.objects.filter(o => o instanceof TikZGrid);
+        const coords = this.objects.filter(o => o instanceof TikZCoordinate);
+        const visibleCoords = coords.filter(o => o.showPoint);
+        const labeledCoords = coords.filter(o => o.label);
+        const others = this.objects.filter(o => !(o instanceof TikZGrid) || visibleCoords.includes(o) || labeledCoords.includes(o));
+        
+        // Grids first
+        if (grids.length > 0) {
+            lines.push('  % Grid');
+            grids.forEach(g => lines.push(g.toTikZ()));
+            lines.push('');
+        }
+        
+        // Coordinates
+        if (coords.length > 0) {
+            lines.push('  % Coordinates');
+            coords.forEach(c => lines.push(c.toTikZ()));
+            lines.push('');
+        }
+        
+        // Other objects in order
+        if (others.length > 0) {
+            lines.push('  % Drawing');
+            others.forEach(o => {
+                if (visibleCoords.includes(o)) {
+                    lines.push(o.toTikZPoint());
+                }
+                if (labeledCoords.includes(o)) {
+                    lines.push(o.toTikZLabel());
+                }
+                if (!coords.includes(o)) {
+                    lines.push(o.toTikZ());
+                }
+            });
+        }
+
+        lines.push('\\end{tikzpicture}');
+        
+        return lines.join('\n');
+    }
+    
+    // ========================================================================
+    // Save/Load
+    // ========================================================================
+    
+    saveProject() {
+        // Prompt for filename
+        let filename = prompt('Enter filename:', 'tikz-drawing');
+        if (!filename) return; // User cancelled
+
+        // Ensure .json extension
+        filename = filename.trim();
+        if (!filename.endsWith('.json')) {
+            filename += '.json';
+        }
+
+        const data = {
+            version: '1.0',
+            viewX: this.viewX,
+            viewY: this.viewY,
+            zoom: this.zoom,
+            customColors: this.customColors,
+            objects: this.objects.map(o => this.serializeObject(o))
+        };
+
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    serializeObject(obj) {
+        const data = { type: obj.constructor.name, id: obj.id };
+        
+        if (obj instanceof TikZCoordinate) {
+            data.x = obj.x;
+            data.y = obj.y;
+            data.name = obj.name;
+            data.showPoint = obj.showPoint;
+            data.pointSize = obj.pointSize;
+            data.color = obj.color;
+            data.label = obj.label;
+            data.anchor = obj.anchor;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZSegment) {
+            data.from = obj.from;
+            data.to = obj.to;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.nodes = obj.nodes.map(n => ({
+                text: n.text,
+                position: n.position,
+                anchor: n.anchor,
+                fontSize: n.fontSize,
+                color: n.color
+            }));
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZVector) {
+            data.from = obj.from;
+            data.to = obj.to;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.arrowType = obj.arrowType;
+            data.arrowEnd = obj.arrowEnd;
+            data.arrowSize = obj.arrowSize;
+            data.nodes = obj.nodes.map(n => ({
+                text: n.text,
+                position: n.position,
+                anchor: n.anchor,
+                fontSize: n.fontSize,
+                color: n.color
+            }));
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZCircle) {
+            data.center = obj.center;
+            data.radius = obj.radius;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.fill = obj.fill;
+            data.fillOpacity = obj.fillOpacity;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZArc) {
+            data.center = obj.center;
+            data.radius = obj.radius;
+            data.startAngle = obj.startAngle;
+            data.endAngle = obj.endAngle;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZRectangle) {
+            data.corner1 = obj.corner1;
+            data.corner2 = obj.corner2;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.fill = obj.fill;
+            data.fillOpacity = obj.fillOpacity;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZPath) {
+            data.points = [...obj.points];
+            data.closed = obj.closed;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.fill = obj.fill;
+            data.fillOpacity = obj.fillOpacity;
+            data.nodes = obj.nodes.map(n => ({
+                text: n.text,
+                position: n.position,
+                anchor: n.anchor,
+                fontSize: n.fontSize,
+                color: n.color,
+                segmentIndex: n.segmentIndex
+            }));
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZBezier) {
+            data.from = obj.from;
+            data.control = obj.control;
+            data.to = obj.to;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZLabel) {
+            data.at = obj.at;
+            data.text = obj.text;
+            data.position = obj.position;
+            data.distance = obj.distance;
+            data.fontSize = obj.fontSize;
+            data.color = obj.color;
+            data.expanded = obj.expanded;
+        } else if (obj instanceof TikZGrid) {
+            data.xMin = obj.xMin;
+            data.yMin = obj.yMin;
+            data.xMax = obj.xMax;
+            data.yMax = obj.yMax;
+            data.step = obj.step;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.expanded = obj.expanded;
+        }
+        
+        return data;
+    }
+    
+    loadProject() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        
+        input.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = event => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        this.loadProjectData(data);
+                    } catch (err) {
+                        this.showToast('Error loading project: ' + err.message, 'error');
+                    }
+                };
+                reader.onerror = () => {
+                    this.showToast('Error reading file', 'error');
+                };
+                reader.readAsText(file);
+            }
+        });
+        
+        input.click();
+    }
+    
+    loadProjectData(data) {
+        if (!data || typeof data !== 'object') {
+            this.showToast('Invalid project file format', 'error');
+            return;
+        }
+
+        if (!data.objects || !Array.isArray(data.objects)) {
+            this.showToast('Invalid project file: no objects found', 'error');
+            return;
+        }
+        
+        // Reset
+        this.objects = [];
+        this.selectedObject = null;
+        this.latexCache.clear();
+        objectIdCounter = 0;
+        
+        // Load settings
+        if (data.viewX !== undefined) this.viewX = data.viewX;
+        if (data.viewY !== undefined) this.viewY = data.viewY;
+        if (data.zoom !== undefined) this.zoom = data.zoom;
+        if (data.customColors) this.customColors = data.customColors;
+        
+        // Load objects
+        for (const objData of data.objects) {
+            const obj = this.deserializeObject(objData);
+            if (obj) {
+                this.objects.push(obj);
+                // Update objectIdCounter to avoid ID collisions
+                const idNum = parseInt(obj.id.split('_')[1]) || 0;
+                if (idNum >= objectIdCounter) {
+                    objectIdCounter = idNum + 1;
+                }
+            }
+        }
+        
+        this.updateObjectList();
+        this.updatePropertiesPanel();
+        this.render();
+        
+        // Update zoom display
+        document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
+    }
+    
+    deserializeObject(data) {
+        let obj;
+        
+        try {
+            switch (data.type) {
+                case 'TikZCoordinate':
+                    obj = new TikZCoordinate(data.x, data.y, data.name);
+                    obj.showPoint = data.showPoint;
+                    obj.pointSize = data.pointSize;
+                    obj.color = data.color;
+                    obj.label = data.label || '';
+                    obj.anchor = data.anchor || 'above right';
+                    break;
+                case 'TikZSegment':
+                    obj = new TikZSegment(data.from, data.to);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    if (data.nodes) {
+                        obj.nodes = data.nodes.map(n => {
+                            const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
+                            node.fontSize = n.fontSize || 'normal';
+                            node.color = n.color || 'black';
+                            return node;
+                        });
+                    }
+                    break;
+                case 'TikZVector':
+                    obj = new TikZVector(data.from, data.to);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    obj.arrowType = data.arrowType || 'Stealth';
+                    obj.arrowEnd = data.arrowEnd || '-Stealth';
+                    obj.arrowSize = data.arrowSize || 1.0;
+                    if (data.nodes) {
+                        obj.nodes = data.nodes.map(n => {
+                            const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
+                            node.fontSize = n.fontSize || 'normal';
+                            node.color = n.color || 'black';
+                            return node;
+                        });
+                    }
+                    break;
+                case 'TikZCircle':
+                    obj = new TikZCircle(data.center, data.radius);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    obj.fill = data.fill;
+                    obj.fillOpacity = data.fillOpacity;
+                    break;
+                case 'TikZArc':
+                    obj = new TikZArc(data.center, data.radius, data.startAngle, data.endAngle);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    break;
+                case 'TikZRectangle':
+                    obj = new TikZRectangle(data.corner1, data.corner2);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    obj.fill = data.fill;
+                    obj.fillOpacity = data.fillOpacity;
+                    break;
+                case 'TikZPath':
+                    obj = new TikZPath(data.points || []);
+                    obj.closed = data.closed;
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    obj.fill = data.fill;
+                    obj.fillOpacity = data.fillOpacity;
+                    if (data.nodes) {
+                        obj.nodes = data.nodes.map(n => {
+                            const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
+                            node.fontSize = n.fontSize || 'normal';
+                            node.color = n.color || 'black';
+                            node.segmentIndex = n.segmentIndex;
+                            return node;
+                        });
+                    }
+                    break;
+                case 'TikZBezier':
+                    obj = new TikZBezier(data.from, data.control, data.to);
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    obj.lineStyle = data.lineStyle;
+                    break;
+                case 'TikZLabel':
+                    obj = new TikZLabel(data.at, data.text);
+                    obj.position = data.position;
+                    obj.distance = data.distance;
+                    obj.fontSize = data.fontSize;
+                    obj.color = data.color;
+                    break;
+                case 'TikZGrid':
+                    obj = new TikZGrid(data.xMin, data.yMin, data.xMax, data.yMax);
+                    obj.step = data.step;
+                    obj.color = data.color;
+                    obj.thickness = data.thickness;
+                    break;
+                default:
+                    console.warn('Unknown object type:', data.type);
+                    return null;
+            }
+            
+            if (obj) {
+                obj.id = data.id || obj.id;
+                obj.expanded = data.expanded || false;
+            }
+        } catch (err) {
+            console.error('Error deserializing object:', data, err);
+            return null;
+        }
+        
+        return obj;
+    }
+}
+
+// Initialize app
+const app = new TikZDrawApp();
+window.app = app; // Make available to MathJax callback
+
+// Update status tip on load
+app.updateStatusTip();
+</script>
+</body>
+</html>
