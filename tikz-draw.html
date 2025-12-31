@@ -84,6 +84,12 @@
         .btn-danger { background: #5a3333; border-color: #7a4444; }
         .btn-danger:hover { background: #7a4444; }
         
+        button[disabled] {
+            pointer-events: none;
+            opacity: 0.5; 
+            cursor: not-allowed;
+        }
+
         /* Main Layout */
         .main {
             display: flex;
