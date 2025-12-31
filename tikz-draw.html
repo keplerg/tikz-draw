@@ -856,6 +856,22 @@ const THICKNESS_VALUES = {
     'ultra thick': 4
 };
 
+// TikZ patterns from patterns library
+const TIKZ_PATTERNS = {
+    'none': 'Solid',
+    'horizontal lines': 'Horizontal Lines',
+    'vertical lines': 'Vertical Lines',
+    'north east lines': 'NE Lines',
+    'north west lines': 'NW Lines',
+    'grid': 'Grid',
+    'crosshatch': 'Crosshatch',
+    'dots': 'Dots',
+    'crosshatch dots': 'Crosshatch Dots',
+    'fivepointed stars': 'Stars',
+    'sixpointed stars': '6-Point Stars',
+    'bricks': 'Bricks'
+};
+
 // ============================================================================
 // Object Model Classes
 // ============================================================================
@@ -1000,6 +1016,7 @@ class TikZCircle extends TikZObject {
         this.lineStyle = 'solid';
         this.fill = 'none';
         this.fillOpacity = 1.0;
+        this.pattern = 'none';
     }
     
     toTikZ() {
@@ -1008,14 +1025,22 @@ class TikZCircle extends TikZObject {
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle === 'dashed') opts.push('dashed');
         if (this.lineStyle === 'dotted') opts.push('dotted');
-        
+
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
-            cmd = '\\filldraw';
-            opts.push(`fill=${this.fill}`);
+            if (this.pattern && this.pattern !== 'none') {
+                opts.push(`pattern color=${this.fill}`);
+            } else {
+                opts.push(`fill=${this.fill}`);
+            }
             if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
         }
-        
+
+        // Add pattern if specified
+        if (this.pattern && this.pattern !== 'none') {
+            opts.push(`pattern=${this.pattern}`);
+        }
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
     }
@@ -1060,22 +1085,31 @@ class TikZRectangle extends TikZObject {
         this.lineStyle = 'solid';
         this.fill = 'none';
         this.fillOpacity = 1.0;
+        this.pattern = 'none';
     }
-    
+
     toTikZ() {
         let opts = [];
         if (this.color !== 'black') opts.push(this.color);
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle === 'dashed') opts.push('dashed');
         if (this.lineStyle === 'dotted') opts.push('dotted');
-        
+
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
-            cmd = '\\filldraw';
-            opts.push(`fill=${this.fill}`);
+            if (this.pattern && this.pattern !== 'none') {
+                opts.push(`pattern color=${this.fill}`);
+            } else {
+                opts.push(`fill=${this.fill}`);
+            }
             if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
         }
-        
+
+        // Add pattern if specified
+        if (this.pattern && this.pattern !== 'none') {
+            opts.push(`pattern=${this.pattern}`);
+        }
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  ${cmd}${optStr} (${this.corner1}) rectangle (${this.corner2});`;
     }
@@ -1091,9 +1125,10 @@ class TikZPath extends TikZObject {
         this.lineStyle = 'solid';
         this.fill = 'none';
         this.fillOpacity = 1.0;
+        this.pattern = 'none';
         this.nodes = [];
     }
-    
+
     toTikZ() {
         let opts = [];
         if (this.color !== 'black') opts.push(this.color);
@@ -1104,8 +1139,17 @@ class TikZPath extends TikZObject {
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
             cmd = '\\filldraw';
-            opts.push(`fill=${this.fill}`);
+            if (this.pattern && this.pattern !== 'none') {
+                opts.push(`pattern color=${this.fill}`);
+            } else {
+                opts.push(`fill=${this.fill}`);
+            }
             if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+        }
+
+        // Add pattern if specified
+        if (this.pattern && this.pattern !== 'none') {
+            opts.push(`pattern=${this.pattern}`);
         }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
@@ -2589,7 +2633,106 @@ class TikZDrawApp {
             default: return [];
         }
     }
-    
+
+    createCanvasPattern(patternName, fillColor = '#808080') {
+        if (patternName === 'none') return null;
+
+        // Create a small canvas for the pattern
+        const patternCanvas = document.createElement('canvas');
+        const patternSize = 10;
+        patternCanvas.width = patternSize;
+        patternCanvas.height = patternSize;
+        const pCtx = patternCanvas.getContext('2d');
+
+        pCtx.strokeStyle = fillColor;
+        pCtx.fillStyle = fillColor;
+        pCtx.lineWidth = 1;
+
+        switch (patternName) {
+            case 'horizontal lines':
+                pCtx.beginPath();
+                pCtx.moveTo(0, 5);
+                pCtx.lineTo(10, 5);
+                pCtx.stroke();
+                break;
+            case 'vertical lines':
+                pCtx.beginPath();
+                pCtx.moveTo(5, 0);
+                pCtx.lineTo(5, 10);
+                pCtx.stroke();
+                break;
+            case 'north east lines':
+                pCtx.beginPath();
+                pCtx.moveTo(0, 10);
+                pCtx.lineTo(10, 0);
+                pCtx.stroke();
+                break;
+            case 'north west lines':
+                pCtx.beginPath();
+                pCtx.moveTo(0, 0);
+                pCtx.lineTo(10, 10);
+                pCtx.stroke();
+                break;
+            case 'grid':
+                pCtx.beginPath();
+                pCtx.moveTo(5, 0);
+                pCtx.lineTo(5, 10);
+                pCtx.moveTo(0, 5);
+                pCtx.lineTo(10, 5);
+                pCtx.stroke();
+                break;
+            case 'crosshatch':
+                pCtx.beginPath();
+                pCtx.moveTo(0, 0);
+                pCtx.lineTo(10, 10);
+                pCtx.moveTo(0, 10);
+                pCtx.lineTo(10, 0);
+                pCtx.stroke();
+                break;
+            case 'dots':
+                pCtx.beginPath();
+                pCtx.arc(5, 5, 1, 0, Math.PI * 2);
+                pCtx.fill();
+                break;
+            case 'crosshatch dots':
+                pCtx.beginPath();
+                pCtx.moveTo(0, 0);
+                pCtx.lineTo(10, 10);
+                pCtx.moveTo(0, 10);
+                pCtx.lineTo(10, 0);
+                pCtx.stroke();
+                pCtx.beginPath();
+                pCtx.arc(5, 5, 1, 0, Math.PI * 2);
+                pCtx.fill();
+                break;
+            case 'fivepointed stars':
+            case 'sixpointed stars':
+                // Simple star representation with a small asterisk
+                pCtx.beginPath();
+                pCtx.moveTo(5, 2);
+                pCtx.lineTo(5, 8);
+                pCtx.moveTo(2, 5);
+                pCtx.lineTo(8, 5);
+                pCtx.moveTo(3, 3);
+                pCtx.lineTo(7, 7);
+                pCtx.moveTo(3, 7);
+                pCtx.lineTo(7, 3);
+                pCtx.stroke();
+                break;
+            case 'bricks':
+                pCtx.beginPath();
+                pCtx.strokeRect(0, 0, 10, 5);
+                pCtx.strokeRect(0, 5, 5, 5);
+                pCtx.strokeRect(5, 5, 5, 5);
+                pCtx.stroke();
+                break;
+            default:
+                return null;
+        }
+
+        return this.ctx.createPattern(patternCanvas, 'repeat');
+    }
+
     drawVector(vec) {
         const from = this.getCoordByName(vec.from);
         const to = this.getCoordByName(vec.to);
@@ -2651,24 +2794,34 @@ class TikZDrawApp {
     drawCircle(circle) {
         const center = this.getCoordByName(circle.center);
         if (!center) return;
-        
+
         const ctx = this.ctx;
         const pos = this.worldToScreen(center.x, center.y);
         const radius = circle.radius * this.zoom;
-        
+
         if (circle.fill !== 'none') {
-            ctx.fillStyle = this.getColor(circle.fill);
+            // Use pattern if specified, otherwise use solid fill
+            if (circle.pattern && circle.pattern !== 'none') {
+                const pattern = this.createCanvasPattern(circle.pattern, this.getColor(circle.fill));
+                if (pattern) {
+                    ctx.fillStyle = pattern;
+                } else {
+                    ctx.fillStyle = this.getColor(circle.fill);
+                }
+            } else {
+                ctx.fillStyle = this.getColor(circle.fill);
+            }
             ctx.globalAlpha = circle.fillOpacity;
             ctx.beginPath();
             ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
             ctx.fill();
             ctx.globalAlpha = 1;
         }
-        
+
         ctx.strokeStyle = this.getColor(circle.color);
         ctx.lineWidth = this.getThickness(circle.thickness);
         ctx.setLineDash(this.getLineDash(circle.lineStyle));
-        
+
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
         ctx.stroke();
@@ -2712,16 +2865,26 @@ class TikZDrawApp {
         const h = Math.abs(p2.y - p1.y);
         
         if (rect.fill !== 'none') {
-            ctx.fillStyle = this.getColor(rect.fill);
+            // Use pattern if specified, otherwise use solid fill
+            if (rect.pattern && rect.pattern !== 'none') {
+                const pattern = this.createCanvasPattern(rect.pattern, this.getColor(rect.fill));
+                if (pattern) {
+                    ctx.fillStyle = pattern;
+                } else {
+                    ctx.fillStyle = this.getColor(rect.fill);
+                }
+            } else {
+                ctx.fillStyle = this.getColor(rect.fill);
+            }
             ctx.globalAlpha = rect.fillOpacity;
             ctx.fillRect(x, y, w, h);
             ctx.globalAlpha = 1;
         }
-        
+
         ctx.strokeStyle = this.getColor(rect.color);
         ctx.lineWidth = this.getThickness(rect.thickness);
         ctx.setLineDash(this.getLineDash(rect.lineStyle));
-        
+
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
     }
@@ -2736,7 +2899,17 @@ class TikZDrawApp {
         const screenPoints = points.map(p => this.worldToScreen(p.x, p.y));
 
         if (path.fill !== 'none' && path.closed) {
-            ctx.fillStyle = this.getColor(path.fill);
+            // Use pattern if specified, otherwise use solid fill
+            if (path.pattern && path.pattern !== 'none') {
+                const pattern = this.createCanvasPattern(path.pattern, this.getColor(path.fill));
+                if (pattern) {
+                    ctx.fillStyle = pattern;
+                } else {
+                    ctx.fillStyle = this.getColor(path.fill);
+                }
+            } else {
+                ctx.fillStyle = this.getColor(path.fill);
+            }
             ctx.globalAlpha = path.fillOpacity;
             ctx.beginPath();
             ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
@@ -3181,7 +3354,8 @@ class TikZDrawApp {
     }
     
     renderColorSelect(currentColor, propertyName) {
-        let options = Object.keys(TIKZ_COLORS).map(c => 
+        let options = (propertyName == 'fill') ? [`<option value="none" ${currentColor === "none" ? 'selected' : ''}>none</option>`] : [];
+        options += Object.keys(TIKZ_COLORS).map(c => 
             `<option value="${c}" ${currentColor === c ? 'selected' : ''}>${c}</option>`
         ).join('');
         
@@ -3231,7 +3405,14 @@ class TikZDrawApp {
         ).join('');
         return `<select data-prop="${propertyName}">${options}</select>`;
     }
-    
+
+    renderPatternSelect(currentPattern, propertyName) {
+        const options = Object.keys(TIKZ_PATTERNS).map(p =>
+            `<option value="${p}" ${currentPattern === p ? 'selected' : ''}>${TIKZ_PATTERNS[p]}</option>`
+        ).join('');
+        return `<select data-prop="${propertyName}">${options}</select>`;
+    }
+
     renderCoordSelect(currentCoord, propertyName, exclude = []) {
         const coords = this.objects.filter(o => o instanceof TikZCoordinate && !exclude.includes(o.name));
         const options = coords.map(c => 
@@ -3402,6 +3583,10 @@ class TikZDrawApp {
                 <span class="property-label">Opacity:</span>
                 <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${circle.fillOpacity}"></div>
             </div>
+            <div class="property-row">
+                <span class="property-label">Pattern:</span>
+                <div class="property-input">${this.renderPatternSelect(circle.pattern, 'pattern')}</div>
+            </div>
         `;
     }
     
@@ -3460,9 +3645,17 @@ class TikZDrawApp {
                 <span class="property-label">Fill:</span>
                 <div class="property-input">${this.renderColorSelect(rect.fill, 'fill')}</div>
             </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${rect.fillOpacity}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Pattern:</span>
+                <div class="property-input">${this.renderPatternSelect(rect.pattern, 'pattern')}</div>
+            </div>
         `;
     }
-    
+
     renderPathProperties(path) {
         return `
             <div class="property-row">
@@ -3488,9 +3681,17 @@ class TikZDrawApp {
                 <span class="property-label">Fill:</span>
                 <div class="property-input">${this.renderColorSelect(path.fill, 'fill')}</div>
             </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${path.fillOpacity}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Pattern:</span>
+                <div class="property-input">${this.renderPatternSelect(path.pattern, 'pattern')}</div>
+            </div>
         `;
     }
-    
+
     renderBezierProperties(bezier) {
         return `
             <div class="property-row">
@@ -4465,10 +4666,23 @@ class TikZDrawApp {
     
     generateTikZ() {
         let lines = [];
-        
+
+        // Check if any objects use patterns
+        const usesPatterns = this.objects.some(o =>
+            (o instanceof TikZCircle || o instanceof TikZRectangle || o instanceof TikZPath) &&
+            o.pattern && o.pattern !== 'none'
+        );
+
+        // Add note about patterns library if needed
+        if (usesPatterns) {
+            lines.push('% NOTE: This drawing uses patterns. Add the following to your preamble:');
+            lines.push('% \\usetikzlibrary{patterns}');
+            lines.push('');
+        }
+
         // Preamble
         lines.push('\\begin{tikzpicture}[scale=1]');
-        
+
         // Custom colors
         for (const [name, hex] of Object.entries(this.customColors)) {
             const rgb = this.hexToRgb(hex);
@@ -4476,7 +4690,7 @@ class TikZDrawApp {
                 lines.push(`  \\definecolor{${name}}{RGB}{${rgb.r},${rgb.g},${rgb.b}}`);
             }
         }
-        
+
         if (Object.keys(this.customColors).length > 0) lines.push('');
         
         // Separate objects by type for clean output
@@ -4607,6 +4821,7 @@ class TikZDrawApp {
             data.lineStyle = obj.lineStyle;
             data.fill = obj.fill;
             data.fillOpacity = obj.fillOpacity;
+            data.pattern = obj.pattern;
             data.expanded = obj.expanded;
         } else if (obj instanceof TikZArc) {
             data.center = obj.center;
@@ -4625,6 +4840,7 @@ class TikZDrawApp {
             data.lineStyle = obj.lineStyle;
             data.fill = obj.fill;
             data.fillOpacity = obj.fillOpacity;
+            data.pattern = obj.pattern;
             data.expanded = obj.expanded;
         } else if (obj instanceof TikZPath) {
             data.points = [...obj.points];
@@ -4634,6 +4850,7 @@ class TikZDrawApp {
             data.lineStyle = obj.lineStyle;
             data.fill = obj.fill;
             data.fillOpacity = obj.fillOpacity;
+            data.pattern = obj.pattern;
             data.nodes = obj.nodes.map(n => ({
                 text: n.text,
                 position: n.position,
@@ -4798,6 +5015,7 @@ class TikZDrawApp {
                     obj.lineStyle = data.lineStyle;
                     obj.fill = data.fill;
                     obj.fillOpacity = data.fillOpacity;
+                    obj.pattern = data.pattern || 'none';
                     break;
                 case 'TikZArc':
                     obj = new TikZArc(data.center, data.radius, data.startAngle, data.endAngle);
@@ -4812,6 +5030,7 @@ class TikZDrawApp {
                     obj.lineStyle = data.lineStyle;
                     obj.fill = data.fill;
                     obj.fillOpacity = data.fillOpacity;
+                    obj.pattern = data.pattern || 'none';
                     break;
                 case 'TikZPath':
                     obj = new TikZPath(data.points || []);
@@ -4821,6 +5040,7 @@ class TikZDrawApp {
                     obj.lineStyle = data.lineStyle;
                     obj.fill = data.fill;
                     obj.fillOpacity = data.fillOpacity;
+                    obj.pattern = data.pattern || 'none';
                     if (data.nodes) {
                         obj.nodes = data.nodes.map(n => {
                             const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
