@@ -2898,7 +2898,7 @@ class TikZDrawApp {
 
         const screenPoints = points.map(p => this.worldToScreen(p.x, p.y));
 
-        if (path.fill !== 'none' && path.closed) {
+        if (path.fill !== 'none') {
             // Use pattern if specified, otherwise use solid fill
             if (path.pattern && path.pattern !== 'none') {
                 const pattern = this.createCanvasPattern(path.pattern, this.getColor(path.fill));
