@@ -3969,8 +3969,8 @@ class TikZDrawApp {
             <div class="property-row">
                 <span class="property-label">Position:</span>
                 <div class="property-input coord-inputs">
-                    <input type="number" step="0.25" data-prop="x" value="${coord.x}">
-                    <input type="number" step="0.25" data-prop="y" value="${coord.y}">
+                    <input type="number" step="0.25" data-prop="x" value="${coord.x.toFixed(2)}">
+                    <input type="number" step="0.25" data-prop="y" value="${coord.y.toFixed(2)}">
                 </div>
             </div>
             <div class="property-row">
@@ -4732,11 +4732,11 @@ class TikZDrawApp {
     }
     
     getObjectDisplayName(obj) {
-        if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x}, ${obj.y})`;
+        if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x.toFixed(2)}, ${obj.y.toFixed(2)})`;
         if (obj instanceof TikZSegment) return `${obj.from} → ${obj.to}`;
         if (obj instanceof TikZVector) return `${obj.from} → ${obj.to}`;
-        if (obj instanceof TikZCircle) return `${obj.center}, r=${obj.radius}`;
-        if (obj instanceof TikZArc) return `${obj.center}, ${obj.startAngle}°-${obj.endAngle}°`;
+        if (obj instanceof TikZCircle) return `${obj.center}, r=${obj.radius.toFixed(2)}`;
+        if (obj instanceof TikZArc) return `${obj.center}, ${obj.startAngle.toFixed(0)}°-${obj.endAngle.toFixed(0)}°`;
         if (obj instanceof TikZRectangle) return `${obj.corner1} × ${obj.corner2}`;
         if (obj instanceof TikZPath) return `${obj.points.length} points`;
         if (obj instanceof TikZBezier) return `${obj.from} ~ ${obj.to}`;
