@@ -7,10 +7,12 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 ## Features
 
 - **Visual Drawing Tools**: Point, Line, Vector, Circle, Arc, Rectangle, Path, Bézier Curve, Label, and Grid
+- **Multi-Select**: Select multiple objects with click-to-toggle or drag-to-select box
 - **Select & Move Tools**: Select objects with inside-click detection, or use Move tool for independent movement
+- **Multi-Object Operations**: Delete, move, copy/paste, and nudge multiple objects together
 - **LaTeX Support**: Full MathJax rendering for labels and annotations
 - **Pattern Support**: 12 TikZ patterns (horizontal/vertical lines, grid, dots, stars, bricks, etc.) for filled objects
-- **Copy/Paste**: Duplicate objects with all properties preserved (Ctrl+C/Ctrl+V)
+- **Copy/Paste**: Duplicate single or multiple objects with all properties and relationships preserved (Ctrl+C/Ctrl+V)
 - **Undo/Redo**: Full undo/redo support with 50-state history (Ctrl+Z/Ctrl+Y)
 - **Arrow Key Nudging**: Precise positioning with 0.1 unit (normal) or 0.01 unit (Shift) increments
 - **Clean TikZ Export**: Generates well-formatted, readable TikZ code
@@ -61,11 +63,16 @@ start tikz-draw.html      # Windows
 
 4. **Style Objects**: Click inside any object to select it, then edit its properties in the right panel - colors, line styles, thickness, patterns, etc.
 
-5. **Move & Adjust**: Use the Move tool (M) to reposition objects, or use arrow keys to nudge selected objects for precise positioning.
+5. **Select Multiple Objects**: With Select tool (V):
+   - Click objects one-by-one to build selection (click again to deselect)
+   - OR drag a box around objects to select all within the box
+   - Click empty space to clear selection
 
-6. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V to quickly create duplicates.
+6. **Move & Adjust**: Use the Move tool (M) to reposition objects, or use arrow keys to nudge selected objects for precise positioning. Works with single or multiple objects!
 
-7. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
+7. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
+
+8. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
 
 ## Navigation
 
@@ -196,19 +203,29 @@ The exported TikZ code is clean and well-organized:
 
 | Key | Action |
 |-----|--------|
-| **Ctrl+C** | Copy selected object |
-| **Ctrl+V** | Paste (with 0.5 unit offset) |
+| **Ctrl+C** | Copy selected object(s) |
+| **Ctrl+V** | Paste (with 0.5 unit offset) - maintains relationships |
 | **Ctrl+Z** | Undo |
 | **Ctrl+Y** or **Ctrl+Shift+Z** | Redo |
-| **Delete** / **Backspace** | Delete selected object |
-| **Escape** | Deselect / Cancel operation |
+| **Delete** / **Backspace** | Delete selected object(s) |
+| **Escape** | Clear selection / Cancel operation |
 
-### Nudging (when object selected)
+### Multi-Select (with Select tool V)
+
+| Action | Method |
+|--------|--------|
+| **Add to selection** | Click object |
+| **Remove from selection** | Click selected object again |
+| **Select multiple** | Click objects one-by-one |
+| **Box select** | Drag on empty canvas |
+| **Clear selection** | Click empty space (no drag) |
+
+### Nudging (when objects selected)
 
 | Key | Action |
 |-----|--------|
-| **Arrow Keys** | Nudge 0.1 units |
-| **Shift + Arrow Keys** | Fine nudge 0.01 units |
+| **Arrow Keys** | Nudge all selected 0.1 units |
+| **Shift + Arrow Keys** | Fine nudge all selected 0.01 units |
 
 ### Navigation
 
@@ -252,12 +269,26 @@ Project files preserve all objects, positions, styles, and view settings.
 
 ## Tips
 
+### Selection
 - **Inside-Click Selection**: Click anywhere inside objects (circles, rectangles, closed paths) to select them - no need to click on borders
-- **Move Tool**: Use the Move tool (M) to move objects independently. Shared coordinates are automatically cloned to prevent affecting other objects
-- **Quick Duplication**: Select an object, press Ctrl+C to copy, then Ctrl+V to paste. Paste multiple times to create multiple copies
-- **Fine Positioning**: After placing or pasting objects, use arrow keys to nudge them into exact positions (0.1 units normal, 0.01 units with Shift)
+- **Multi-Select**: Click objects one-by-one to build a selection, or drag a box around objects to select them all
+- **Toggle Selection**: Click a selected object again to deselect it while keeping other selections
+- **Box Select**: Drag on empty canvas to select all objects within the rectangle
+- **Clear Selection**: Click on empty space (without dragging) or press Escape
+
+### Movement & Positioning
+- **Move Tool**: Use the Move tool (M) to move single or multiple objects. Click any selected object to drag the entire group
+- **Smart Coordinate Handling**: When moving multiple objects, shared coordinates within the group move together. Coordinates shared outside the group are automatically cloned
+- **Arrow Key Nudging**: Works with single or multiple selected objects - nudge all together (0.1 units normal, 0.01 units with Shift)
+- **Precise Positioning**: Use the coordinate inputs in the properties panel for exact values
+
+### Copy & Paste
+- **Single or Multiple**: Copy/paste works with any number of selected objects - just select and press Ctrl+C, then Ctrl+V
+- **Relationship Preservation**: When copying multiple objects, their coordinate relationships are preserved in the paste
+- **Quick Duplication**: Select objects, press Ctrl+C to copy, then Ctrl+V multiple times to create multiple copies
+
+### Organization
 - **Naming Points**: Points are automatically named A, B, C... You can rename them in the properties panel
-- **Precise Positioning**: Use the coordinate inputs in the properties panel for exact values, or use arrow key nudging for fine control
 - **Reordering**: Drag objects in the Objects list to change their draw order (z-index)
 - **Colors**: Use the color picker or enter custom hex colors. TikZ color names (red, blue, etc.) are supported
 - **Patterns**: Combine fill colors with patterns for visual variety. Pattern color matches the fill color

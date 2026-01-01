@@ -1355,7 +1355,7 @@ class TikZDrawApp {
         
         // Object storage
         this.objects = [];
-        this.selectedObject = null;
+        this.selectedObjects = []; // Changed from selectedObject to support multi-select
         this.selectedSubIndex = -1;
         this.customColors = {};
 
@@ -1378,6 +1378,10 @@ class TikZDrawApp {
         this.dragObject = null;
         this.isPanning = false;
         this.panStart = null;
+
+        // Multi-select drag-to-select state
+        this.isBoxSelecting = false;
+        this.boxSelectStart = null;
 
         // Move tool state
         this.isMoving = false;
@@ -1751,17 +1755,10 @@ class TikZDrawApp {
         const idx = this.objects.indexOf(obj);
         if (idx >= 0) {
             this.objects.splice(idx, 1);
-            if (this.selectedObject === obj) {
-                // Select next object in list, or previous if at end
-                if (this.objects.length > 0) {
-                    if (idx < this.objects.length) {
-                        this.selectedObject = this.objects[idx];
-                    } else {
-                        this.selectedObject = this.objects[this.objects.length - 1];
-                    }
-                } else {
-                    this.selectedObject = null;
-                }
+            // Remove from selection if it was selected
+            const selIdx = this.selectedObjects.indexOf(obj);
+            if (selIdx >= 0) {
+                this.selectedObjects.splice(selIdx, 1);
                 this.updatePropertiesPanel();
             }
             this.updateObjectList();
@@ -1800,8 +1797,8 @@ class TikZDrawApp {
     findObjectAt(wx, wy) {
         // Priority check: if a bezier is selected, check its control point first
         // This ensures control points are clickable even when grids are behind them
-        if (this.selectedObject instanceof TikZBezier) {
-            const ctrl = this.getCoordByName(this.selectedObject.control);
+        if (this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZBezier) {
+            const ctrl = this.getCoordByName(this.selectedObjects[0].control);
             if (ctrl) {
                 const dist = Math.hypot(ctrl.x - wx, ctrl.y - wy);
                 if (dist < 0.3) return ctrl; // Larger hit radius for better grabbing
@@ -2074,6 +2071,60 @@ class TikZDrawApp {
         return coordsToMove;
     }
 
+    prepareMultipleObjectsForMove(objects) {
+        // Prepare multiple objects for movement
+        // Coordinates shared WITHIN the selection move together (no cloning)
+        // Coordinates shared OUTSIDE the selection are cloned
+
+        // Collect all unique coordinates used by the selection
+        const allCoordNames = new Set();
+        for (const obj of objects) {
+            const coordNames = this.getObjectCoordinates(obj);
+            coordNames.forEach(name => allCoordNames.add(name));
+        }
+
+        const coordsToMove = [];
+        const coordMap = {}; // old name -> new name (for cloned coords)
+
+        for (const coordName of allCoordNames) {
+            // Check if this coordinate is used by objects OUTSIDE the selection
+            const usedOutside = this.objects.some(obj => {
+                // Skip if obj is a TikZCoordinate (point itself)
+                if (obj instanceof TikZCoordinate) return false;
+                // Skip if obj is in the selection
+                if (objects.includes(obj)) return false;
+                // Check if obj uses this coordinate
+                const objCoords = this.getObjectCoordinates(obj);
+                return objCoords.includes(coordName);
+            });
+
+            if (usedOutside) {
+                // Clone the coordinate for the selection
+                const cloned = this.cloneCoordinate(coordName);
+                if (cloned) {
+                    this.objects.push(cloned);
+                    coordMap[coordName] = cloned.name;
+                    coordsToMove.push(cloned);
+                }
+            } else {
+                // Move the coordinate directly (not shared outside)
+                const coord = this.getCoordByName(coordName);
+                if (coord) {
+                    coordsToMove.push(coord);
+                }
+            }
+        }
+
+        // Update all selected objects to use the new coordinate references
+        for (const obj of objects) {
+            for (const [oldName, newName] of Object.entries(coordMap)) {
+                this.updateObjectCoordinateReference(obj, oldName, newName);
+            }
+        }
+
+        return coordsToMove;
+    }
+
     generateCoordName() {
         const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         let index = 0;
@@ -2129,10 +2180,10 @@ class TikZDrawApp {
         const sy = e.clientY - rect.top;
         const world = this.screenToWorld(sx, sy);
         const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
-        
+
         // Update cursor position display
         document.getElementById('cursorPos').textContent = `(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`;
-        
+
         // Handle panning
         if (this.isPanning && this.panStart) {
             this.viewX = this.panStart.viewX + (sx - this.panStart.x);
@@ -2140,7 +2191,23 @@ class TikZDrawApp {
             this.render();
             return;
         }
-        
+
+        // Handle box selection (drag-to-select with Select tool)
+        if (this.boxSelectStart && this.currentTool === 'select') {
+            // Check if mouse moved enough to start box selection
+            const dx = Math.abs(world.x - this.boxSelectStart.x);
+            const dy = Math.abs(world.y - this.boxSelectStart.y);
+            if (dx > 0.1 || dy > 0.1) {
+                this.isBoxSelecting = true;
+            }
+
+            if (this.isBoxSelecting) {
+                this.render();
+                this.drawSelectionBox(this.boxSelectStart, world);
+                return;
+            }
+        }
+
         // Handle dragging selected object
         if (this.isDragging && this.dragObject && this.dragObject instanceof TikZCoordinate) {
             this.dragObject.x = snapped.x;
@@ -2177,6 +2244,29 @@ class TikZDrawApp {
     }
     
     onMouseUp(e) {
+        // Handle box selection completion
+        if (this.boxSelectStart) {
+            const rect = this.canvas.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const world = this.screenToWorld(sx, sy);
+
+            if (this.isBoxSelecting) {
+                // Dragged to select - select all objects in box
+                this.selectObjectsInBox(this.boxSelectStart, world);
+                this.isBoxSelecting = false;
+            } else {
+                // Just clicked on empty space without dragging - clear selection
+                this.selectedObjects = [];
+            }
+
+            this.boxSelectStart = null;
+            this.updatePropertiesPanel();
+            this.updateObjectList();
+            this.updateUndoRedoButtons();
+            this.render();
+        }
+
         if (this.isPanning) {
             this.isPanning = false;
             this.panStart = null;
@@ -2248,14 +2338,21 @@ class TikZDrawApp {
         }
         
         // Delete - only when not in input field
-        if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedObject && !isInputActive) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedObjects.length > 0 && !isInputActive) {
             e.preventDefault();
-            this.removeObject(this.selectedObject);
+
+            // Make a copy of the array since removeObject modifies selectedObjects
+            const objectsToRemove = [...this.selectedObjects];
+
+            // Remove all selected objects
+            for (const obj of objectsToRemove) {
+                this.removeObject(obj);
+            }
             return;
         }
 
-        // Arrow keys to nudge selected object - only when not in input field
-        if (!isInputActive && this.selectedObject && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        // Arrow keys to nudge selected objects - only when not in input field
+        if (!isInputActive && this.selectedObjects.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
             e.preventDefault();
 
             // Nudge amount: 0.01 units with Shift (fine), 0.1 units without (normal)
@@ -2272,23 +2369,29 @@ class TikZDrawApp {
             // Save state for undo
             this.saveState();
 
-            // Nudge the selected object
-            if (this.selectedObject instanceof TikZCoordinate) {
-                // Nudge the coordinate point itself
-                this.selectedObject.x += dx;
-                this.selectedObject.y += dy;
-            } else {
-                // Nudge all coordinates used by this object
-                const coordNames = this.getObjectCoordinates(this.selectedObject);
-                const uniqueCoordNames = [...new Set(coordNames)];
+            // Collect all coordinates to nudge (avoiding duplicates)
+            const coordsToNudge = new Set();
 
-                for (const coordName of uniqueCoordNames) {
-                    const coord = this.getCoordByName(coordName);
-                    if (coord) {
-                        coord.x += dx;
-                        coord.y += dy;
+            for (const obj of this.selectedObjects) {
+                if (obj instanceof TikZCoordinate) {
+                    // Direct coordinate - add it
+                    coordsToNudge.add(obj);
+                } else {
+                    // Get all coordinates used by this object
+                    const coordNames = this.getObjectCoordinates(obj);
+                    for (const coordName of coordNames) {
+                        const coord = this.getCoordByName(coordName);
+                        if (coord) {
+                            coordsToNudge.add(coord);
+                        }
                     }
                 }
+            }
+
+            // Nudge all collected coordinates
+            for (const coord of coordsToNudge) {
+                coord.x += dx;
+                coord.y += dy;
             }
 
             this.render();
@@ -2301,9 +2404,10 @@ class TikZDrawApp {
         if (e.key === 'Escape') {
             this.toolState = null;
             this.tempPoints = [];
-            this.selectedObject = null;
+            this.selectedObjects = [];
             this.updatePropertiesPanel();
             this.updateObjectList();
+            this.updateUndoRedoButtons();
             this.updateUndoRedoButtons();
             this.render();
             return;
@@ -2339,7 +2443,7 @@ class TikZDrawApp {
         }
 
         // Ctrl+C to copy
-        if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !isInputActive && this.selectedObject) {
+        if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !isInputActive && this.selectedObjects.length > 0) {
             e.preventDefault();
             this.copyObject();
             return;
@@ -2400,24 +2504,32 @@ class TikZDrawApp {
         const obj = this.findObjectAt(world.x, world.y);
 
         if (obj) {
-            this.selectedObject = obj;
+            // Toggle selection: if already selected, deselect; otherwise add to selection
+            const index = this.selectedObjects.indexOf(obj);
+            if (index >= 0) {
+                // Object is already selected, remove it
+                this.selectedObjects.splice(index, 1);
+            } else {
+                // Object is not selected, add it
+                this.selectedObjects.push(obj);
+            }
 
-            // Start dragging if it's a coordinate
-            if (obj instanceof TikZCoordinate) {
+            // Start dragging if it's a coordinate and it's the only selected object
+            if (obj instanceof TikZCoordinate && this.selectedObjects.length === 1) {
                 this.isDragging = true;
                 this.dragObject = obj;
             }
 
-            // Update UI first
+            // Update UI
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
             this.render();
 
-            // Auto-open label editor for segments/vectors only (not paths)
+            // Auto-open label editor for segments/vectors only (not paths) - only if single object selected
             // For paths, user must click on specific segment in object list
             // Use type property instead of instanceof
-            if (obj.type === 'line' || obj.type === 'vec') {
+            if (this.selectedObjects.length === 1 && (obj.type === 'line' || obj.type === 'vec')) {
                 // Use setTimeout to ensure UI updates complete first
                 setTimeout(() => {
                     if (obj.nodes && obj.nodes.length > 0) {
@@ -2435,11 +2547,8 @@ class TikZDrawApp {
                 return;
             }
         } else {
-            this.selectedObject = null;
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-            this.render();
+            // Clicked on empty space - start box selection (actual selection happens on mouseup)
+            this.boxSelectStart = { x: world.x, y: world.y };
         }
     }
 
@@ -2450,14 +2559,25 @@ class TikZDrawApp {
             // Save state for undo
             this.saveState();
 
-            // Prepare object for independent movement
-            this.moveCoords = this.prepareObjectForMove(obj);
-            this.moveObject = obj;
+            // Check if clicked object is in current selection
+            const clickedOnSelected = this.selectedObjects.includes(obj);
+
+            if (clickedOnSelected && this.selectedObjects.length > 1) {
+                // Moving multiple selected objects
+                this.moveCoords = this.prepareMultipleObjectsForMove(this.selectedObjects);
+                this.moveObject = null; // Track that we're moving multiple
+                // Keep current selection
+            } else {
+                // Moving single object (either unselected or only selected one)
+                this.moveCoords = this.prepareObjectForMove(obj);
+                this.moveObject = obj;
+                // Update selection to just this object
+                this.selectedObjects = [obj];
+            }
+
             this.isMoving = true;
             this.moveStart = { x: world.x, y: world.y };
 
-            // Update selection
-            this.selectedObject = obj;
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -2469,7 +2589,7 @@ class TikZDrawApp {
         // Check for existing point
         const existing = this.findCoordNear(snapped.x, snapped.y, 0.1);
         if (existing) {
-            this.selectedObject = existing;
+            this.selectedObjects = [existing];
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -2480,7 +2600,7 @@ class TikZDrawApp {
         const coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
         coord.showPoint = true;
         this.addObject(coord);
-        this.selectedObject = coord;
+        this.selectedObjects = [coord];
         this.updatePropertiesPanel();
         this.updateUndoRedoButtons();
     }
@@ -2503,7 +2623,7 @@ class TikZDrawApp {
                 ? new TikZVector(this.tempPoints[0], this.tempPoints[1])
                 : new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
             this.addObject(obj);
-            this.selectedObject = obj;
+            this.selectedObjects = [obj];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2528,7 +2648,7 @@ class TikZDrawApp {
             
             const circle = new TikZCircle(center.name, Math.max(0.1, radius));
             this.addObject(circle);
-            this.selectedObject = circle;
+            this.selectedObjects = [circle];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2560,7 +2680,7 @@ class TikZDrawApp {
             
             const arc = new TikZArc(center.name, radius, startAngle, endAngle);
             this.addObject(arc);
-            this.selectedObject = arc;
+            this.selectedObjects = [arc];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2581,7 +2701,7 @@ class TikZDrawApp {
         if (this.tempPoints.length === 2) {
             const rect = new TikZRectangle(this.tempPoints[0], this.tempPoints[1]);
             this.addObject(rect);
-            this.selectedObject = rect;
+            this.selectedObjects = [rect];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2597,7 +2717,7 @@ class TikZDrawApp {
         if (coord) {
             const label = new TikZLabel(coord.name, '$x$');
             this.addObject(label);
-            this.selectedObject = label;
+            this.selectedObjects = [label];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
         } else {
@@ -2606,7 +2726,7 @@ class TikZDrawApp {
             this.addObject(newCoord);
             const label = new TikZLabel(newCoord.name, '$x$');
             this.addObject(label);
-            this.selectedObject = label;
+            this.selectedObjects = [label];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
         }
@@ -2626,7 +2746,7 @@ class TikZDrawApp {
             const path = new TikZPath([...this.tempPoints]);
             path.closed = true;
             this.addObject(path);
-            this.selectedObject = path;
+            this.selectedObjects = [path];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2637,7 +2757,7 @@ class TikZDrawApp {
             if (this.tempPoints.length >= 2 && this.toolState === 'finishing') {
                 const path = new TikZPath([...this.tempPoints]);
                 this.addObject(path);
-                this.selectedObject = path;
+                this.selectedObjects = [path];
                 this.tempPoints = [];
                 this.toolState = null;
                 this.updatePropertiesPanel();
@@ -2665,7 +2785,7 @@ class TikZDrawApp {
         if (this.tempPoints.length === 3) {
             const bezier = new TikZBezier(this.tempPoints[0], this.tempPoints[1], this.tempPoints[2]);
             this.addObject(bezier);
-            this.selectedObject = bezier;
+            this.selectedObjects = [bezier];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2686,7 +2806,7 @@ class TikZDrawApp {
                 Math.max(p1.y, snapped.y)
             );
             this.addObject(grid);
-            this.selectedObject = grid;
+            this.selectedObjects = [grid];
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateUndoRedoButtons();
@@ -2744,9 +2864,9 @@ class TikZDrawApp {
                 this.drawObject(obj);
             }
 
-            // Draw selection highlight
-            if (this.selectedObject) {
-                this.drawSelectionHighlight(this.selectedObject);
+            // Draw selection highlights for all selected objects
+            for (const obj of this.selectedObjects) {
+                this.drawSelectionHighlight(obj);
             }
         } finally {
             this.isRendering = false;
@@ -3284,7 +3404,7 @@ class TikZDrawApp {
         ctx.setLineDash([]);
         
         // Draw control handle if selected
-        if (this.selectedObject === bezier) {
+        if (this.selectedObjects.length === 1 && this.selectedObjects[0] === bezier) {
             ctx.strokeStyle = '#666';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
@@ -3446,7 +3566,116 @@ class TikZDrawApp {
         
         ctx.setLineDash([]);
     }
-    
+
+    drawSelectionBox(start, end) {
+        const ctx = this.ctx;
+        const p1 = this.worldToScreen(start.x, start.y);
+        const p2 = this.worldToScreen(end.x, end.y);
+
+        const minX = Math.min(p1.x, p2.x);
+        const minY = Math.min(p1.y, p2.y);
+        const width = Math.abs(p2.x - p1.x);
+        const height = Math.abs(p2.y - p1.y);
+
+        // Draw semi-transparent fill
+        ctx.fillStyle = 'rgba(97, 175, 239, 0.1)';
+        ctx.fillRect(minX, minY, width, height);
+
+        // Draw dashed border
+        ctx.strokeStyle = '#61afef';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(minX, minY, width, height);
+        ctx.setLineDash([]);
+    }
+
+    selectObjectsInBox(start, end) {
+        const minX = Math.min(start.x, end.x);
+        const maxX = Math.max(start.x, end.x);
+        const minY = Math.min(start.y, end.y);
+        const maxY = Math.max(start.y, end.y);
+
+        // Clear existing selection (Option A behavior)
+        this.selectedObjects = [];
+
+        // Select all objects that are inside or intersect the box
+        for (const obj of this.objects) {
+            if (this.isObjectInBox(obj, minX, maxX, minY, maxY)) {
+                this.selectedObjects.push(obj);
+            }
+        }
+    }
+
+    isObjectInBox(obj, minX, maxX, minY, maxY) {
+        // Check if object is inside the selection box
+        if (obj instanceof TikZCoordinate) {
+            return obj.x >= minX && obj.x <= maxX && obj.y >= minY && obj.y <= maxY;
+        }
+        else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+            const from = this.getCoordByName(obj.from);
+            const to = this.getCoordByName(obj.to);
+            if (from && to) {
+                // Select if either endpoint is in box
+                return (from.x >= minX && from.x <= maxX && from.y >= minY && from.y <= maxY) ||
+                       (to.x >= minX && to.x <= maxX && to.y >= minY && to.y <= maxY);
+            }
+        }
+        else if (obj instanceof TikZCircle) {
+            const center = this.getCoordByName(obj.center);
+            if (center) {
+                // Select if center is in box
+                return center.x >= minX && center.x <= maxX && center.y >= minY && center.y <= maxY;
+            }
+        }
+        else if (obj instanceof TikZRectangle) {
+            const c1 = this.getCoordByName(obj.corner1);
+            const c2 = this.getCoordByName(obj.corner2);
+            if (c1 && c2) {
+                // Select if either corner is in box
+                return (c1.x >= minX && c1.x <= maxX && c1.y >= minY && c1.y <= maxY) ||
+                       (c2.x >= minX && c2.x <= maxX && c2.y >= minY && c2.y <= maxY);
+            }
+        }
+        else if (obj instanceof TikZPath) {
+            // Select if any point is in box
+            for (const pointName of obj.points) {
+                const coord = this.getCoordByName(pointName);
+                if (coord && coord.x >= minX && coord.x <= maxX && coord.y >= minY && coord.y <= maxY) {
+                    return true;
+                }
+            }
+        }
+        else if (obj instanceof TikZArc) {
+            const center = this.getCoordByName(obj.center);
+            if (center) {
+                return center.x >= minX && center.x <= maxX && center.y >= minY && center.y <= maxY;
+            }
+        }
+        else if (obj instanceof TikZBezier) {
+            const from = this.getCoordByName(obj.from);
+            const to = this.getCoordByName(obj.to);
+            if (from && to) {
+                return (from.x >= minX && from.x <= maxX && from.y >= minY && from.y <= maxY) ||
+                       (to.x >= minX && to.x <= maxX && to.y >= minY && to.y <= maxY);
+            }
+        }
+        else if (obj instanceof TikZLabel) {
+            const at = this.getCoordByName(obj.at);
+            if (at) {
+                return at.x >= minX && at.x <= maxX && at.y >= minY && at.y <= maxY;
+            }
+        }
+        else if (obj instanceof TikZGrid) {
+            const from = this.getCoordByName(obj.from);
+            const to = this.getCoordByName(obj.to);
+            if (from && to) {
+                return (from.x >= minX && from.x <= maxX && from.y >= minY && from.y <= maxY) ||
+                       (to.x >= minX && to.x <= maxX && to.y >= minY && to.y <= maxY);
+            }
+        }
+        return false;
+    }
+
     drawTempGeometry(snapped) {
         const ctx = this.ctx;
         ctx.strokeStyle = '#61afef';
@@ -3602,15 +3831,28 @@ class TikZDrawApp {
     
     updatePropertiesPanel() {
         const panel = document.getElementById('propertiesPanel');
-        
-        if (!this.selectedObject) {
+
+        if (this.selectedObjects.length === 0) {
             panel.innerHTML = '<div class="no-selection">No object selected</div>';
             return;
         }
-        
-        const obj = this.selectedObject;
+
+        if (this.selectedObjects.length > 1) {
+            panel.innerHTML = `<div class="no-selection" style="color:#61afef;">${this.selectedObjects.length} objects selected</div>
+                <div style="margin-top:10px; padding:10px; background:rgba(97,175,239,0.1); border-radius:4px; font-size:12px;">
+                    <div>• Click object to deselect</div>
+                    <div>• Delete key to remove all</div>
+                    <div>• Arrow keys to move all</div>
+                    <div>• Move tool (M) to drag all</div>
+                    <div>• Ctrl+C to copy all</div>
+                    <div>• Ctrl+V to paste all</div>
+                </div>`;
+            return;
+        }
+
+        const obj = this.selectedObjects[0];
         let html = '';
-        
+
         html += `<div class="property-row">
             <span class="property-label">Type:</span>
             <span style="color:#61afef;font-weight:500;">${TYPE_NAMES[obj.type] || obj.type}</span>
@@ -4102,7 +4344,7 @@ class TikZDrawApp {
                 }
 
                 // Update label preview if relevant property changed
-                if (this.selectedObject instanceof TikZLabel &&
+                if (this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZLabel &&
                     (el.dataset.prop === 'text' || el.dataset.prop === 'fontSize' || el.dataset.prop === 'color')) {
                     this.updateLabelPreview();
                 }
@@ -4111,7 +4353,7 @@ class TikZDrawApp {
                 if (el.tagName === 'TEXTAREA') {
                     this.handlePropertyChange(el);
                     // Update label preview on text input
-                    if (this.selectedObject instanceof TikZLabel) {
+                    if (this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZLabel) {
                         this.updateLabelPreview();
                     }
                 }
@@ -4121,9 +4363,9 @@ class TikZDrawApp {
 
     async updateLabelPreview() {
         const previewDiv = document.getElementById('labelPreview');
-        if (!previewDiv || !this.selectedObject || !(this.selectedObject instanceof TikZLabel)) return;
+        if (!previewDiv || this.selectedObjects.length !== 1 || !(this.selectedObjects[0] instanceof TikZLabel)) return;
 
-        const label = this.selectedObject;
+        const label = this.selectedObjects[0];
         const text = label.text;
         const color = this.getColor(label.color);
         const fontSize = label.fontSize || 'normal';
@@ -4157,7 +4399,8 @@ class TikZDrawApp {
     }
 
     handlePropertyChange(el) {
-        if (!this.selectedObject) return;
+        if (this.selectedObjects.length !== 1) return;
+        const selectedObj = this.selectedObjects[0];
 
         const prop = el.dataset.prop;
         if (!prop) return;
@@ -4177,7 +4420,7 @@ class TikZDrawApp {
         // Clear LaTeX cache if text-related property changed
         if (prop === 'text' || prop === 'label' || prop === 'fontSize') {
             // Remove old cached version
-            const oldText = this.selectedObject['text'] || this.selectedObject['label'];
+            const oldText = selectedObj['text'] || this.selectedObject['label'];
             if (oldText) {
                 // Clear any cached renders for the old text
                 for (const key of this.latexCache.keys()) {
@@ -4189,8 +4432,8 @@ class TikZDrawApp {
         }
         
         // Handle name change specially for coordinates
-        if (prop === 'name' && this.selectedObject instanceof TikZCoordinate) {
-            const oldName = this.selectedObject.name;
+        if (prop === 'name' && selectedObj instanceof TikZCoordinate) {
+            const oldName = selectedObj.name;
             const newName = value;
             
             // Update all references
@@ -4208,13 +4451,13 @@ class TikZDrawApp {
             });
         }
         
-        this.selectedObject[prop] = value;
+        selectedObj[prop] = value;
         this.render();
         this.updateObjectList();
     }
     
     addEmbeddedNode() {
-        if (!this.selectedObject || !this.selectedObject.nodes) {
+        if (this.selectedObjects.length !== 1 || !this.selectedObjects[0].nodes) {
             return;
         }
 
@@ -4222,12 +4465,12 @@ class TikZDrawApp {
         this.saveState();
 
         const node = new TikZEmbeddedNode('label', 0.5, 'above');
-        this.selectedObject.nodes.push(node);
+        this.selectedObjects[0].nodes.push(node);
         // this.render();
         this.updateObjectList();
 
         // Open editor for the new node
-        this.openNodeEditor(this.selectedObject, node);
+        this.openNodeEditor(this.selectedObjects[0], node);
     }
     
     openNodeEditor(parentObj, node) {
@@ -4393,7 +4636,7 @@ class TikZDrawApp {
         let html = '';
         
         for (const obj of this.objects) {
-            const isSelected = obj === this.selectedObject;
+            const isSelected = this.selectedObjects.includes(obj);
             const icon = this.getObjectIcon(obj);
             const name = this.getObjectDisplayName(obj);
             const hasSubObjects = typeof obj.getSubObjects === 'function' && obj.getSubObjects().length > 0;
@@ -4445,12 +4688,12 @@ class TikZDrawApp {
                         // Select the referenced coordinate
                         const refCoord = this.getCoordByName(sub.ref);
                         if (refCoord) {
-                            this.selectedObject = refCoord;
+                            this.selectedObjects = [refCoord];
                             this.selectedSubIndex = -1;
                         }
                     }
                 } else {
-                    this.selectedObject = obj;
+                    this.selectedObjects = [obj];
                     this.selectedSubIndex = -1;
                 }
                 
@@ -4541,7 +4784,7 @@ class TikZDrawApp {
 
                 if (sub && sub.type === 'node') {
                     // Clicking embedded label - open editor for this label
-                    this.selectedObject = obj;
+                    this.selectedObjects = [obj];
                     this.updatePropertiesPanel();
                     this.updateObjectList();
                     this.render();
@@ -4553,7 +4796,7 @@ class TikZDrawApp {
                     return;
                 } else if (sub && sub.type === 'segment') {
                     // Clicking on segment - open label editor
-                    this.selectedObject = obj;
+                    this.selectedObjects = [obj];
                     this.updatePropertiesPanel();
                     this.updateObjectList();
                     this.render();
@@ -4607,7 +4850,7 @@ class TikZDrawApp {
                     // Select the referenced coordinate
                     const refCoord = this.getCoordByName(sub.ref);
                     if (refCoord) {
-                        this.selectedObject = refCoord;
+                        this.selectedObjects = [refCoord];
                         this.updatePropertiesPanel();
                         this.updateObjectList();
                         this.updateUndoRedoButtons();
@@ -4617,7 +4860,7 @@ class TikZDrawApp {
                 }
             } else {
                 // Clicking main object
-                this.selectedObject = obj;
+                this.selectedObjects = [obj];
                 this.updatePropertiesPanel();
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
@@ -4896,8 +5139,8 @@ class TikZDrawApp {
         this.customColors[name] = hex;
 
         // Set the newly created color on the selected object
-        if (this.selectedObject && this.colorPickerProperty) {
-            this.selectedObject[this.colorPickerProperty] = name;
+        if (this.selectedObjects.length === 1 && this.colorPickerProperty) {
+            this.selectedObjects[0][this.colorPickerProperty] = name;
         }
 
         this.closeColorPicker();
@@ -5233,7 +5476,7 @@ class TikZDrawApp {
 
         // Reset
         this.objects = [];
-        this.selectedObject = null;
+        this.selectedObjects = [];
         this.latexCache.clear();
         objectIdCounter = 0;
         
@@ -5401,7 +5644,7 @@ class TikZDrawApp {
         // Deep copy current state
         const state = {
             objects: this.objects.map(o => this.serializeObject(o)),
-            selectedId: this.selectedObject?.id,
+            selectedIds: this.selectedObjects.map(o => o.id),
             customColors: { ...this.customColors }
         };
 
@@ -5417,7 +5660,7 @@ class TikZDrawApp {
         // Save current state to redo stack
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
-            selectedId: this.selectedObject?.id,
+            selectedIds: this.selectedObjects.map(o => o.id),
             customColors: { ...this.customColors }
         };
         this.redoStack.push(currentState);
@@ -5435,7 +5678,7 @@ class TikZDrawApp {
         // Save current to undo
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
-            selectedId: this.selectedObject?.id,
+            selectedIds: this.selectedObjects.map(o => o.id),
             customColors: { ...this.customColors }
         };
         this.undoStack.push(currentState);
@@ -5455,7 +5698,7 @@ class TikZDrawApp {
         this.customColors = { ...state.customColors };
 
         // Restore selection
-        this.selectedObject = this.objects.find(o => o.id === state.selectedId) || null;
+        this.selectedObjects = this.objects.filter(o => state.selectedIds && state.selectedIds.includes(o.id));
         this.selectedSubIndex = -1;
 
         this.render();
@@ -5465,12 +5708,21 @@ class TikZDrawApp {
     }
 
     copyObject() {
-        if (!this.selectedObject) return;
+        if (this.selectedObjects.length === 0) return;
 
-        // Serialize the selected object to clipboard
-        this.clipboard = this.serializeObject(this.selectedObject);
-        console.log('Copied:', this.selectedObject.type);
-        this.showToast('Copied '+TYPE_NAMES[this.selectedObject.type]+'!', 'success');
+        // Serialize all selected objects
+        this.clipboard = {
+            objects: this.selectedObjects.map(obj => this.serializeObject(obj)),
+            count: this.selectedObjects.length
+        };
+
+        if (this.selectedObjects.length === 1) {
+            console.log('Copied:', this.selectedObjects[0].type);
+            this.showToast('Copied '+TYPE_NAMES[this.selectedObjects[0].type]+'!', 'success');
+        } else {
+            console.log('Copied:', this.selectedObjects.length, 'objects');
+            this.showToast('Copied '+this.selectedObjects.length+' objects!', 'success');
+        }
 
         // Update button states (enables Paste button)
         this.updateUndoRedoButtons();
@@ -5485,18 +5737,25 @@ class TikZDrawApp {
         // Offset for pasted objects (0.5 units right and up)
         const offset = { x: 0.5, y: 0.5 };
 
+        // Handle both old format (single object) and new format (multiple objects)
+        const clipboardData = this.clipboard.objects ? this.clipboard.objects : [this.clipboard];
+
         // Map to store old coordinate names -> new coordinate names
         const coordMap = {};
 
-        // Get all coordinates used by the object
-        const tempObj = this.deserializeObject(this.clipboard);
-        if (!tempObj) return;
+        // First pass: collect ALL unique coordinates used by ALL objects
+        const allCoordNames = new Set();
+        for (const objData of clipboardData) {
+            const tempObj = this.deserializeObject(objData);
+            if (tempObj) {
+                const coordNames = this.getObjectCoordinates(tempObj);
+                coordNames.forEach(name => allCoordNames.add(name));
+            }
+        }
 
-        const coordNames = this.getObjectCoordinates(tempObj);
-        const uniqueCoordNames = [...new Set(coordNames)];
-
-        // Create new coordinates for all coordinates used by the object
-        for (const oldCoordName of uniqueCoordNames) {
+        // Create new coordinates for all coordinates used by the group
+        // This ensures shared coordinates within the group remain shared
+        for (const oldCoordName of allCoordNames) {
             const oldCoord = this.getCoordByName(oldCoordName);
             if (oldCoord) {
                 // Create new coordinate with offset
@@ -5519,27 +5778,34 @@ class TikZDrawApp {
             }
         }
 
-        // Now deserialize the object again and update its coordinate references
-        const newObj = this.deserializeObject(this.clipboard);
-        if (!newObj) return;
-
-        // Update coordinate references in the new object
-        for (const [oldName, newName] of Object.entries(coordMap)) {
-            this.updateObjectCoordinateReference(newObj, oldName, newName);
+        // Second pass: deserialize all objects and update their coordinate references
+        const newObjects = [];
+        for (const objData of clipboardData) {
+            const newObj = this.deserializeObject(objData);
+            if (newObj) {
+                // Update coordinate references in the new object
+                for (const [oldName, newName] of Object.entries(coordMap)) {
+                    this.updateObjectCoordinateReference(newObj, oldName, newName);
+                }
+                this.objects.push(newObj);
+                newObjects.push(newObj);
+            }
         }
 
-        // Add the new object
-        this.objects.push(newObj);
-
-        // Select the new object
-        this.selectedObject = newObj;
+        // Select all pasted objects
+        this.selectedObjects = newObjects;
 
         this.render();
         this.updatePropertiesPanel();
         this.updateObjectList();
 
-        console.log('Pasted:', newObj.type, 'with offset', offset);
-        this.showToast('Pasted '+TYPE_NAMES[newObj.type]+'!', 'success');
+        if (newObjects.length === 1) {
+            console.log('Pasted:', newObjects[0].type, 'with offset', offset);
+            this.showToast('Pasted '+TYPE_NAMES[newObjects[0].type]+'!', 'success');
+        } else {
+            console.log('Pasted:', newObjects.length, 'objects with offset', offset);
+            this.showToast('Pasted '+newObjects.length+' objects!', 'success');
+        }
     }
 
     updateUndoRedoButtons() {
@@ -5555,7 +5821,8 @@ class TikZDrawApp {
             redoBtn.disabled = this.redoStack.length === 0;
         }
         if (copyBtn) {
-            copyBtn.disabled = !this.selectedObject;
+            // Enable copy when any objects are selected
+            copyBtn.disabled = this.selectedObjects.length === 0;
         }
         if (pasteBtn) {
             pasteBtn.disabled = !this.clipboard;
