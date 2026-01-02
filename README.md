@@ -9,7 +9,8 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 - **Visual Drawing Tools**: Point, Line, Vector, Circle, Arc, Rectangle, Path, Bézier Curve, Label, and Grid
 - **Multi-Select**: Select multiple objects with click-to-toggle or drag-to-select box
 - **Select & Move Tools**: Select objects with inside-click detection, or use Move tool for independent movement
-- **Multi-Object Operations**: Delete, move, copy/paste, and nudge multiple objects together
+- **Rotate Tool**: Rotate objects interactively with visual feedback (5° snap) or input exact angles
+- **Multi-Object Operations**: Delete, move, rotate, copy/paste, and nudge multiple objects together
 - **LaTeX Support**: Full MathJax rendering for labels and annotations
 - **Pattern Support**: 12 TikZ patterns (horizontal/vertical lines, grid, dots, stars, bricks, etc.) for filled objects
 - **Copy/Paste**: Duplicate single or multiple objects with all properties and relationships preserved (Ctrl+C/Ctrl+V)
@@ -42,6 +43,7 @@ start tikz-draw.html      # Windows
 |------|----------|-------------|
 | Select | V | Select and edit objects (click inside to select) |
 | Move | M | Move objects independently (auto-clones shared coordinates) |
+| Rotate | O | Rotate objects around their center (5° snap, Shift for free rotation) |
 | Point | P | Create coordinate points |
 | Line | L | Draw line segments between points |
 | Vector | A | Draw arrows/vectors between points |
@@ -64,15 +66,17 @@ start tikz-draw.html      # Windows
 4. **Style Objects**: Click inside any object to select it, then edit its properties in the right panel - colors, line styles, thickness, patterns, etc.
 
 5. **Select Multiple Objects**: With Select tool (V):
-   - Click objects one-by-one to build selection (click again to deselect)
+   - Ctrl+click objects one-by-one to build selection (Ctrl+click again to deselect)
    - OR drag a box around objects to select all within the box
    - Click empty space to clear selection
 
 6. **Move & Adjust**: Use the Move tool (M) to reposition objects, or use arrow keys to nudge selected objects for precise positioning. Works with single or multiple objects!
 
-7. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
+7. **Rotate Objects**: Use the Rotate tool (O) to rotate objects around their center. Click and drag in a circular motion to rotate interactively (snaps to 5°), or hold Shift for free rotation. Note: Rectangles cannot be rotated.
 
-8. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
+8. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
+
+9. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
 
 ## Navigation
 
@@ -188,6 +192,7 @@ The exported TikZ code is clean and well-organized:
 |-----|------|
 | V | Select tool |
 | M | Move tool |
+| O | Rotate tool |
 | P | Point tool |
 | L | Line tool |
 | A | Vector (Arrow) tool |
@@ -214,9 +219,9 @@ The exported TikZ code is clean and well-organized:
 
 | Action | Method |
 |--------|--------|
-| **Add to selection** | Click object |
-| **Remove from selection** | Click selected object again |
-| **Select multiple** | Click objects one-by-one |
+| **Add to selection** | Ctrl+click object (Cmd on Mac) |
+| **Remove from selection** | Ctrl+click selected object again |
+| **Select multiple** | Ctrl+click objects one-by-one |
 | **Box select** | Drag on empty canvas |
 | **Clear selection** | Click empty space (no drag) |
 
@@ -271,9 +276,10 @@ Project files preserve all objects, positions, styles, and view settings.
 
 ### Selection
 - **Inside-Click Selection**: Click anywhere inside objects (circles, rectangles, closed paths) to select them - no need to click on borders
-- **Multi-Select**: Click objects one-by-one to build a selection, or drag a box around objects to select them all
-- **Toggle Selection**: Click a selected object again to deselect it while keeping other selections
+- **Multi-Select on Canvas**: Hold Ctrl (or Cmd on Mac) and click objects one-by-one to build a selection, or drag a box around objects to select them all
+- **Toggle Selection**: Ctrl+click a selected object again to deselect it while keeping other selections
 - **Box Select**: Drag on empty canvas to select all objects within the rectangle
+- **Object List Multi-Select**: Hold Ctrl (or Cmd on Mac) and click objects in the object list to add/remove them from selection
 - **Clear Selection**: Click on empty space (without dragging) or press Escape
 
 ### Movement & Positioning
@@ -281,6 +287,15 @@ Project files preserve all objects, positions, styles, and view settings.
 - **Smart Coordinate Handling**: When moving multiple objects, shared coordinates within the group move together. Coordinates shared outside the group are automatically cloned
 - **Arrow Key Nudging**: Works with single or multiple selected objects - nudge all together (0.1 units normal, 0.01 units with Shift)
 - **Precise Positioning**: Use the coordinate inputs in the properties panel for exact values
+
+### Rotation
+- **Interactive Rotation**: Use the Rotate tool (O) to rotate objects by clicking and dragging. The center point is calculated automatically from all selected objects
+- **Angle Snapping**: Rotations snap to 5° increments by default. Hold Shift to disable snapping for free rotation
+- **Visual Feedback**: While rotating, you'll see the center point (yellow), guide lines, rotation arc, and current angle display
+- **Multi-Object Rotation**: Works with single or multiple selected objects - all rotate together around their collective center
+- **Smart Coordinate Cloning**: Coordinates shared with non-selected objects are automatically cloned before rotation, so non-selected objects remain unaffected
+- **Coordinate Rotation**: Rotations modify the actual coordinate positions (not TikZ transforms), so what you see is what you export
+- **Rectangle Limitation**: Rectangles cannot be rotated due to TikZ limitations (rectangles are always axis-aligned). Convert to a path first if rotation is needed
 
 ### Copy & Paste
 - **Single or Multiple**: Copy/paste works with any number of selected objects - just select and press Ctrl+C, then Ctrl+V

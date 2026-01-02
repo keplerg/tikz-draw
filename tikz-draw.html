@@ -1399,6 +1399,7 @@ class TikZDrawApp {
         this.isRotating = false;
         this.rotateCenter = null; // { x, y } - center point of rotation
         this.rotateStartAngle = null; // Starting angle from center to mouse
+        this.rotateCurrentAngle = null; // Current angle from center to mouse
         this.rotateCoords = []; // Coordinates being rotated
         this.rotateOriginalPositions = []; // Original positions of coordinates
         this.rotateRectangles = []; // Rectangles being rotated with original deltas
@@ -1763,6 +1764,7 @@ class TikZDrawApp {
     }
 
     removeObject(obj) {
+        console.log('removeObject('+obj.type+')');
         // Save state for undo
         this.saveState();
 
@@ -1990,9 +1992,9 @@ class TikZDrawApp {
         };
     }
 
-    rotatePoint(px, py, cx, cy, angleDeg) {
+    rotatePoint(px, py, cx, cy, angleRad) {
         // Rotate point (px, py) around center (cx, cy) by angleDeg degrees
-        const angleRad = angleDeg * Math.PI / 180;
+        // const angleRad = angleDeg * Math.PI / 180;
         const cos = Math.cos(angleRad);
         const sin = Math.sin(angleRad);
         const dx = px - cx;
@@ -2224,6 +2226,7 @@ class TikZDrawApp {
         const sy = e.clientY - rect.top;
         const world = this.screenToWorld(sx, sy);
         const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
+        const ctrl_click = (e.ctrlKey);
         
         // Middle mouse or space+left for panning
         if (e.button === 1 || (e.button === 0 && e.shiftKey && this.currentTool === 'select')) {
@@ -2242,7 +2245,7 @@ class TikZDrawApp {
         
         // Left click actions based on tool
         if (e.button === 0) {
-            this.handleToolClick(snapped, world);
+            this.handleToolClick(snapped, world, ctrl_click);
         }
     }
     
@@ -2250,6 +2253,7 @@ class TikZDrawApp {
         const rect = this.canvas.getBoundingClientRect();
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
+        const ctrl_click = (e.ctrlKey);
 
         // Store last mouse position for rotation feedback
         this.lastMouseX = sx;
@@ -2320,14 +2324,14 @@ class TikZDrawApp {
             // Calculate current angle from center to mouse
             const dx = world.x - this.rotateCenter.x;
             const dy = world.y - this.rotateCenter.y;
-            const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+            this.rotateCurrentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
 
             // Calculate rotation angle (how much to rotate from original)
-            let rotationAngle = currentAngle - this.rotateStartAngle;
+            let rotationAngle = (this.rotateCurrentAngle - this.rotateStartAngle);
 
             // Apply snapping unless Shift is held
             if (!e.shiftKey) {
-                rotationAngle = this.snapAngle(rotationAngle, 5);
+                rotationAngle = this.snapAngle(rotationAngle, (ctrl_click ? 1 : 5));
             }
 
             // Rotate all coordinates to their new positions
@@ -2335,7 +2339,7 @@ class TikZDrawApp {
                 const rotated = this.rotatePoint(
                     item.x, item.y,
                     this.rotateCenter.x, this.rotateCenter.y,
-                    rotationAngle
+                    rotationAngle * Math.PI / 180
                 );
                 item.coord.x = rotated.x;
                 item.coord.y = rotated.y;
@@ -2590,10 +2594,10 @@ class TikZDrawApp {
     // Tool Handling
     // ========================================================================
     
-    handleToolClick(snapped, world) {
+    handleToolClick(snapped, world, ctrl_click) {
         switch (this.currentTool) {
             case 'select':
-                this.handleSelectClick(world);
+                this.handleSelectClick(world, ctrl_click);
                 break;
             case 'move':
                 this.handleMoveClick(world);
@@ -2632,8 +2636,14 @@ class TikZDrawApp {
         }
     }
     
-    handleSelectClick(world) {
+    handleSelectClick(world, ctrl_click) {
         const obj = this.findObjectAt(world.x, world.y);
+        console.log('handleSelectClick('+obj.type+', '+ctrl_click+')');
+
+        // Clear selected if not a control click
+        if (!ctrl_click) {
+            this.selectedObjects = [];
+        }
 
         if (obj) {
             // Toggle selection: if already selected, deselect; otherwise add to selection
@@ -2751,12 +2761,55 @@ class TikZDrawApp {
                 this.showToast('Skipping rectangles - they cannot be rotated', 'error');
             }
 
+            // Clone shared coordinates before rotating
+            // Collect all coordinate names used by selected objects
+            const coordNamesInSelection = new Set();
+            for (const rotObj of objectsToRotate) {
+                if (rotObj instanceof TikZCoordinate) {
+                    coordNamesInSelection.add(rotObj.name);
+                } else {
+                    const coordNames = this.getObjectCoordinates(rotObj);
+                    for (const coordName of coordNames) {
+                        coordNamesInSelection.add(coordName);
+                    }
+                }
+            }
+
+            // Check each coordinate - if shared with non-selected objects, clone it
+            for (const coordName of coordNamesInSelection) {
+                // Check if this coordinate is used by any non-selected objects
+                let sharedWithNonSelected = false;
+                for (const otherObj of this.objects) {
+                    if (otherObj instanceof TikZCoordinate) continue;
+                    if (objectsToRotate.includes(otherObj)) continue; // Skip selected objects
+
+                    const otherCoords = this.getObjectCoordinates(otherObj);
+                    if (otherCoords.includes(coordName)) {
+                        sharedWithNonSelected = true;
+                        break;
+                    }
+                }
+
+                if (sharedWithNonSelected) {
+                    // Clone this coordinate and update all selected objects to use the clone
+                    const cloned = this.cloneCoordinate(coordName);
+                    if (cloned) {
+                        this.objects.push(cloned);
+                        // Update all selected objects to reference the cloned coordinate
+                        for (const rotObj of objectsToRotate) {
+                            if (rotObj instanceof TikZCoordinate) continue;
+                            this.updateObjectCoordinateReference(rotObj, coordName, cloned.name);
+                        }
+                    }
+                }
+            }
+
             // Calculate center of rotation
             this.rotateCenter = this.calculateSelectionCenter(objectsToRotate);
 
             if (!this.rotateCenter) return; // No valid coordinates to rotate
 
-            // Collect all unique coordinates to rotate
+            // Collect all unique coordinates to rotate (after cloning)
             const coordSet = new Set();
             for (const rotObj of objectsToRotate) {
                 if (rotObj instanceof TikZCoordinate) {
@@ -3816,17 +3869,17 @@ class TikZDrawApp {
         // Calculate current angle
         const dx = world.x - this.rotateCenter.x;
         const dy = world.y - this.rotateCenter.y;
-        const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+        this.rotateCurrentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
 
         // Calculate rotation angle
-        let rotationAngle = currentAngle - this.rotateStartAngle;
+        let rotationAngle = this.rotateCurrentAngle - this.rotateStartAngle;
 
         // Normalize to [-180, 180]
         while (rotationAngle > 180) rotationAngle -= 360;
         while (rotationAngle < -180) rotationAngle += 360;
 
         // Apply snapping for display (matches actual rotation)
-        const displayAngle = this.snapAngle(rotationAngle, 5);
+        const displayAngle = this.snapAngle(rotationAngle, (event.ctrlKey ? 1 : 5));
 
         // Draw center point
         ctx.fillStyle = '#e5c07b';
@@ -3851,7 +3904,7 @@ class TikZDrawApp {
         ctx.stroke();
 
         // Draw guide line from center to current angle
-        const currentAngleRad = -currentAngle * Math.PI / 180;
+        const currentAngleRad = -this.rotateCurrentAngle * Math.PI / 180;
         ctx.strokeStyle = '#61afef';
         ctx.beginPath();
         ctx.moveTo(centerPos.x, centerPos.y);
@@ -3871,7 +3924,8 @@ class TikZDrawApp {
 
         // Display rotation angle near center
         ctx.save();
-        ctx.fillStyle = '#e5c07b';
+        // ctx.fillStyle = '#e5c07b';
+        ctx.fillStyle = '#000';
         ctx.font = 'bold 16px sans-serif';
         const angleText = `${displayAngle.toFixed(0)}°`;
         ctx.fillText(angleText, centerPos.x + 15, centerPos.y - 15);
@@ -4143,12 +4197,9 @@ class TikZDrawApp {
                     <div style="font-size:13px; font-weight:600; color:#e5c07b; margin-bottom:8px;">Rotate Selection</div>
                     <div class="property-row" style="margin-bottom:8px;">
                         <span class="property-label">Angle:</span>
-                        <input type="number" id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
+                        <input type="number" disabled id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
                         <span style="margin-left:5px;color:#888;">degrees</span>
                     </div>
-                    <button onclick="app.applyRotationFromInput()" style="width:100%;padding:6px;background:#e5c07b;color:#1e1e1e;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
-                        Apply Rotation
-                    </button>
                 </div>`;
             return;
         }
@@ -4191,12 +4242,9 @@ class TikZDrawApp {
                     <div style="font-size:13px; font-weight:600; color:#e5c07b; margin-bottom:8px;">Rotate Object</div>
                     <div class="property-row" style="margin-bottom:8px;">
                         <span class="property-label">Angle:</span>
-                        <input type="number" id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
+                        <input type="number" disabled id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
                         <span style="margin-left:5px;color:#888;">degrees</span>
                     </div>
-                    <button onclick="app.applyRotationFromInput()" style="width:100%;padding:6px;background:#e5c07b;color:#1e1e1e;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
-                        Apply Rotation
-                    </button>
                 </div>`;
         }
 
@@ -4976,7 +5024,6 @@ class TikZDrawApp {
                     const subSelected = isSelected && this.selectedSubIndex === i;
                     html += `<div class="object-item subobject ${subSelected ? 'selected' : ''}" 
                                  data-id="${obj.id}" data-sub="${i}">
-                        <!-- span class="drag-handle">⠿</span -->
                         <span class="obj-icon">${this.getSubIcon(sub.type)}</span>
                         <span class="obj-name">${sub.label}</span>
                     </div>`;
@@ -4985,64 +5032,7 @@ class TikZDrawApp {
         }
         
         list.innerHTML = html;
-        
-        // Set up click handlers
-        list.querySelectorAll('.object-item').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const id = el.dataset.id;
-                const subIdx = el.dataset.sub;
 
-                const obj = this.objects.find(o => o.id === id);
-
-                if (subIdx !== undefined) {
-                    // Clicking on a subobject
-                    const subs = obj.getSubObjects();
-                    const sub = subs[parseInt(subIdx)];
-
-                    if (sub && sub.type === 'node') {
-                        // Open node editor modal
-                        this.openNodeEditor(obj, sub.node);
-                        return;
-                    } else if (sub && sub.type === 'ref') {
-                        // Select the referenced coordinate
-                        const refCoord = this.getCoordByName(sub.ref);
-                        if (refCoord) {
-                            // Ctrl+click for multi-select
-                            if (e.ctrlKey || e.metaKey) {
-                                const index = this.selectedObjects.indexOf(refCoord);
-                                if (index >= 0) {
-                                    this.selectedObjects.splice(index, 1);
-                                } else {
-                                    this.selectedObjects.push(refCoord);
-                                }
-                            } else {
-                                this.selectedObjects = [refCoord];
-                            }
-                            this.selectedSubIndex = -1;
-                        }
-                    }
-                } else {
-                    // Ctrl+click for multi-select
-                    if (e.ctrlKey || e.metaKey) {
-                        const index = this.selectedObjects.indexOf(obj);
-                        if (index >= 0) {
-                            this.selectedObjects.splice(index, 1);
-                        } else {
-                            this.selectedObjects.push(obj);
-                        }
-                    } else {
-                        this.selectedObjects = [obj];
-                    }
-                    this.selectedSubIndex = -1;
-                }
-
-                this.updatePropertiesPanel();
-                this.updateObjectList();
-                this.updateUndoRedoButtons();
-                this.render();
-            });
-        });
-        
         this.updateObjectCount();
     }
     
@@ -5097,6 +5087,7 @@ class TikZDrawApp {
     }
     
     setupDragDrop() {
+        console.log('setupDragDrop()');
         const list = document.getElementById('objectList');
 
         let draggedId = null;
@@ -5212,20 +5203,26 @@ class TikZDrawApp {
                 }
             } else {
                 // Clicking main object
+                console.log('Object list click - Ctrl:', e.ctrlKey, 'Meta:', e.metaKey, 'Obj:', obj.id);
                 // Ctrl+click for multi-select
                 if (e.ctrlKey || e.metaKey) {
                     const index = this.selectedObjects.indexOf(obj);
+                    console.log('Multi-select mode - current index:', index, 'selected count:', this.selectedObjects.length);
                     if (index >= 0) {
                         // Already selected, deselect it
                         this.selectedObjects.splice(index, 1);
+                        console.log('Deselected - new count:', this.selectedObjects.length);
                     } else {
                         // Not selected, add to selection
                         this.selectedObjects.push(obj);
+                        console.log('Added to selection - new count:', this.selectedObjects.length);
                     }
                 } else {
                     // Normal click - replace selection
                     this.selectedObjects = [obj];
+                    console.log('Normal click - replaced selection');
                 }
+                console.log('Final selectedObjects:', this.selectedObjects.map(o => o.id));
                 this.updatePropertiesPanel();
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
@@ -6175,74 +6172,6 @@ class TikZDrawApp {
             console.log('Pasted:', newObjects.length, 'objects with offset', offset);
             this.showToast('Pasted '+newObjects.length+' objects!', 'success');
         }
-    }
-
-    applyRotationFromInput() {
-        // Apply rotation from property panel input field
-        if (this.selectedObjects.length === 0) return;
-
-        const input = document.getElementById('rotateAngleInput');
-        if (!input) return;
-
-        const angle = parseFloat(input.value);
-        if (isNaN(angle)) {
-            this.showToast('Please enter a valid angle', 'error');
-            return;
-        }
-
-        // Save state for undo
-        this.saveState();
-
-        // Filter out rectangles (they can't be rotated - TikZ limitation)
-        const hasRectangles = this.selectedObjects.some(obj => obj instanceof TikZRectangle);
-        const rotatableObjects = this.selectedObjects.filter(obj => !(obj instanceof TikZRectangle));
-
-        if (rotatableObjects.length === 0) {
-            this.showToast('Rectangles cannot be rotated (TikZ limitation). Convert to path first.', 'error');
-            return;
-        }
-
-        if (hasRectangles) {
-            this.showToast('Skipping rectangles - they cannot be rotated', 'error');
-        }
-
-        // Calculate center of rotation
-        const center = this.calculateSelectionCenter(rotatableObjects);
-        if (!center) {
-            this.showToast('No coordinates to rotate', 'error');
-            return;
-        }
-
-        // Collect all unique coordinates to rotate
-        const coordSet = new Set();
-        for (const obj of rotatableObjects) {
-            if (obj instanceof TikZCoordinate) {
-                coordSet.add(obj);
-            } else {
-                const coordNames = this.getObjectCoordinates(obj);
-                for (const coordName of coordNames) {
-                    const coord = this.getCoordByName(coordName);
-                    if (coord) coordSet.add(coord);
-                }
-            }
-        }
-
-        // Rotate all coordinates
-        for (const coord of coordSet) {
-            const rotated = this.rotatePoint(coord.x, coord.y, center.x, center.y, angle);
-            coord.x = rotated.x;
-            coord.y = rotated.y;
-        }
-
-        // Reset input and update display
-        input.value = '0';
-        this.render();
-        this.updatePropertiesPanel();
-        this.updateObjectList();
-
-        const objCount = rotatableObjects.length;
-        const objText = objCount === 1 ? TYPE_NAMES[rotatableObjects[0].type] : `${objCount} objects`;
-        this.showToast(`Rotated ${objText} by ${angle.toFixed(1)}°`, 'success');
     }
 
     updateUndoRedoButtons() {
