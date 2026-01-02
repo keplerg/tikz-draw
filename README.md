@@ -43,7 +43,7 @@ start tikz-draw.html      # Windows
 |------|----------|-------------|
 | Select | V | Select and edit objects (click inside to select) |
 | Move | M | Move objects independently (auto-clones shared coordinates) |
-| Rotate | O | Rotate objects around their center (5° snap, Shift for free rotation) |
+| Rotate | O | Rotate objects around their center (5° snap, Ctrl for 1° snap) |
 | Point | P | Create coordinate points |
 | Line | L | Draw line segments between points |
 | Vector | A | Draw arrows/vectors between points |
@@ -72,7 +72,7 @@ start tikz-draw.html      # Windows
 
 6. **Move & Adjust**: Use the Move tool (M) to reposition objects, or use arrow keys to nudge selected objects for precise positioning. Works with single or multiple objects!
 
-7. **Rotate Objects**: Use the Rotate tool (O) to rotate objects around their center. Click and drag in a circular motion to rotate interactively (snaps to 5°), or hold Shift for free rotation. Note: Rectangles cannot be rotated.
+7. **Rotate Objects**: Use the Rotate tool (O) to rotate objects around their center. Click and drag in a circular motion to rotate interactively (snaps to 5°), or hold Ctrl for finer 1° snapping. Note: Rectangles cannot be rotated.
 
 8. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
 
@@ -290,7 +290,7 @@ Project files preserve all objects, positions, styles, and view settings.
 
 ### Rotation
 - **Interactive Rotation**: Use the Rotate tool (O) to rotate objects by clicking and dragging. The center point is calculated automatically from all selected objects
-- **Angle Snapping**: Rotations snap to 5° increments by default. Hold Shift to disable snapping for free rotation
+- **Angle Snapping**: Rotations snap to 5° increments by default. Hold Ctrl (Cmd on Mac) for finer 1° snapping
 - **Visual Feedback**: While rotating, you'll see the center point (yellow), guide lines, rotation arc, and current angle display
 - **Multi-Object Rotation**: Works with single or multiple selected objects - all rotate together around their collective center
 - **Smart Coordinate Cloning**: Coordinates shared with non-selected objects are automatically cloned before rotation, so non-selected objects remain unaffected

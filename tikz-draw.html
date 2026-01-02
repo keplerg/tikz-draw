@@ -1764,7 +1764,6 @@ class TikZDrawApp {
     }
 
     removeObject(obj) {
-        console.log('removeObject('+obj.type+')');
         // Save state for undo
         this.saveState();
 
@@ -2346,12 +2345,6 @@ class TikZDrawApp {
             }
 
             this.render();
-
-            // Update rotation angle input in property panel (after render, don't regenerate whole panel)
-            const rotateInput = document.getElementById('rotateAngleInput');
-            if (rotateInput) {
-                rotateInput.value = rotationAngle.toFixed(1);
-            }
             return;
         }
 
@@ -2638,7 +2631,6 @@ class TikZDrawApp {
     
     handleSelectClick(world, ctrl_click) {
         const obj = this.findObjectAt(world.x, world.y);
-        console.log('handleSelectClick('+obj.type+', '+ctrl_click+')');
 
         // Clear selected if not a control click
         if (!ctrl_click) {
@@ -3798,7 +3790,7 @@ class TikZDrawApp {
         ctx.strokeStyle = this.isMoving ? '#98c379' : '#61afef'; // Green for moving, blue for selected
         ctx.lineWidth = this.isMoving ? 3 : 2;
         ctx.setLineDash([4, 4]);
-        
+
         if (obj instanceof TikZCoordinate) {
             const pos = this.worldToScreen(obj.x, obj.y);
             ctx.beginPath();
@@ -3829,7 +3821,83 @@ class TikZDrawApp {
                 ctx.stroke();
             }
         }
-        
+        else if (obj instanceof TikZRectangle) {
+            const c1 = this.getCoordByName(obj.corner1);
+            const c2 = this.getCoordByName(obj.corner2);
+            if (c1 && c2) {
+                const p1 = this.worldToScreen(c1.x, c1.y);
+                const p2 = this.worldToScreen(c2.x, c2.y);
+                const x = Math.min(p1.x, p2.x) - 4;
+                const y = Math.min(p1.y, p2.y) - 4;
+                const w = Math.abs(p2.x - p1.x) + 8;
+                const h = Math.abs(p2.y - p1.y) + 8;
+                ctx.beginPath();
+                ctx.rect(x, y, w, h);
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZArc) {
+            const center = this.getCoordByName(obj.center);
+            if (center) {
+                const pos = this.worldToScreen(center.x, center.y);
+                const radius = obj.radius * this.zoom + 4;
+                const startRad = -obj.startAngle * Math.PI / 180;
+                const endRad = -obj.endAngle * Math.PI / 180;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius, startRad, endRad, obj.endAngle < obj.startAngle);
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZPath) {
+            const coords = obj.points.map(p => this.getCoordByName(p)).filter(c => c);
+            if (coords.length >= 2) {
+                const screenPoints = coords.map(c => this.worldToScreen(c.x, c.y));
+                ctx.beginPath();
+                ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+                for (let i = 1; i < screenPoints.length; i++) {
+                    ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+                }
+                if (obj.closed) {
+                    ctx.closePath();
+                }
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZBezier) {
+            const from = this.getCoordByName(obj.from);
+            const control = this.getCoordByName(obj.control);
+            const to = this.getCoordByName(obj.to);
+            if (from && control && to) {
+                const p1 = this.worldToScreen(from.x, from.y);
+                const cp = this.worldToScreen(control.x, control.y);
+                const p2 = this.worldToScreen(to.x, to.y);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZLabel) {
+            const coord = this.getCoordByName(obj.at);
+            if (coord) {
+                const pos = this.worldToScreen(coord.x, coord.y);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, 12, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZGrid) {
+            const p1 = this.worldToScreen(obj.xMin, obj.yMin);
+            const p2 = this.worldToScreen(obj.xMax, obj.yMax);
+            const x = Math.min(p1.x, p2.x) - 4;
+            const y = Math.min(p1.y, p2.y) - 4;
+            const w = Math.abs(p2.x - p1.x) + 8;
+            const h = Math.abs(p2.y - p1.y) + 8;
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.stroke();
+        }
+
         ctx.setLineDash([]);
     }
 
@@ -4192,14 +4260,6 @@ class TikZDrawApp {
                     <div>• Rotate tool (O) to rotate all</div>
                     <div>• Ctrl+C to copy all</div>
                     <div>• Ctrl+V to paste all</div>
-                </div>
-                <div style="margin-top:15px; padding:10px; background:rgba(229,192,123,0.1); border-radius:4px;">
-                    <div style="font-size:13px; font-weight:600; color:#e5c07b; margin-bottom:8px;">Rotate Selection</div>
-                    <div class="property-row" style="margin-bottom:8px;">
-                        <span class="property-label">Angle:</span>
-                        <input type="number" disabled id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
-                        <span style="margin-left:5px;color:#888;">degrees</span>
-                    </div>
                 </div>`;
             return;
         }
@@ -4233,19 +4293,6 @@ class TikZDrawApp {
             html += this.renderLabelProperties(obj);
         } else if (obj instanceof TikZGrid) {
             html += this.renderGridProperties(obj);
-        }
-
-        // Add rotation section for all objects (except grids which can't be rotated)
-        if (!(obj instanceof TikZGrid)) {
-            html += `
-                <div style="margin-top:15px; padding:10px; background:rgba(229,192,123,0.1); border-radius:4px;">
-                    <div style="font-size:13px; font-weight:600; color:#e5c07b; margin-bottom:8px;">Rotate Object</div>
-                    <div class="property-row" style="margin-bottom:8px;">
-                        <span class="property-label">Angle:</span>
-                        <input type="number" disabled id="rotateAngleInput" step="5" value="0" style="width:70px;padding:4px;background:#333;border:1px solid #555;color:#e0e0e0;border-radius:3px;">
-                        <span style="margin-left:5px;color:#888;">degrees</span>
-                    </div>
-                </div>`;
         }
 
         panel.innerHTML = html;
@@ -5087,7 +5134,6 @@ class TikZDrawApp {
     }
     
     setupDragDrop() {
-        console.log('setupDragDrop()');
         const list = document.getElementById('objectList');
 
         let draggedId = null;
@@ -5203,26 +5249,20 @@ class TikZDrawApp {
                 }
             } else {
                 // Clicking main object
-                console.log('Object list click - Ctrl:', e.ctrlKey, 'Meta:', e.metaKey, 'Obj:', obj.id);
                 // Ctrl+click for multi-select
                 if (e.ctrlKey || e.metaKey) {
                     const index = this.selectedObjects.indexOf(obj);
-                    console.log('Multi-select mode - current index:', index, 'selected count:', this.selectedObjects.length);
                     if (index >= 0) {
                         // Already selected, deselect it
                         this.selectedObjects.splice(index, 1);
-                        console.log('Deselected - new count:', this.selectedObjects.length);
                     } else {
                         // Not selected, add to selection
                         this.selectedObjects.push(obj);
-                        console.log('Added to selection - new count:', this.selectedObjects.length);
                     }
                 } else {
                     // Normal click - replace selection
                     this.selectedObjects = [obj];
-                    console.log('Normal click - replaced selection');
                 }
-                console.log('Final selectedObjects:', this.selectedObjects.map(o => o.id));
                 this.updatePropertiesPanel();
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
@@ -6083,10 +6123,8 @@ class TikZDrawApp {
         };
 
         if (this.selectedObjects.length === 1) {
-            console.log('Copied:', this.selectedObjects[0].type);
             this.showToast('Copied '+TYPE_NAMES[this.selectedObjects[0].type]+'!', 'success');
         } else {
-            console.log('Copied:', this.selectedObjects.length, 'objects');
             this.showToast('Copied '+this.selectedObjects.length+' objects!', 'success');
         }
 
@@ -6166,10 +6204,8 @@ class TikZDrawApp {
         this.updateObjectList();
 
         if (newObjects.length === 1) {
-            console.log('Pasted:', newObjects[0].type, 'with offset', offset);
             this.showToast('Pasted '+TYPE_NAMES[newObjects[0].type]+'!', 'success');
         } else {
-            console.log('Pasted:', newObjects.length, 'objects with offset', offset);
             this.showToast('Pasted '+newObjects.length+' objects!', 'success');
         }
     }
