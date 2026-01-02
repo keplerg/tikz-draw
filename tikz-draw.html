@@ -960,6 +960,7 @@ class TikZSegment extends TikZObject {
         this.thickness = 'thin';
         this.lineStyle = 'solid';
         this.nodes = []; // Embedded labels
+        this.name = this.id.replace('line_', 'L');
     }
     
     toTikZ() {
@@ -996,6 +997,7 @@ class TikZVector extends TikZObject {
         this.arrowEnd = '-Stealth';
         this.arrowSize = 1.0; // Scale factor for arrow size
         this.nodes = [];
+        this.name = this.id.replace('vec_', 'V');
     }
     
     toTikZ() {
@@ -1040,6 +1042,7 @@ class TikZCircle extends TikZObject {
         this.fill = 'none';
         this.fillOpacity = 1.0;
         this.pattern = 'none';
+        this.name = this.id.replace('circle_', 'C');
     }
     
     toTikZ() {
@@ -1079,6 +1082,7 @@ class TikZArc extends TikZObject {
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
+        this.name = this.id.replace('arc_', 'A');
     }
     
     toTikZ() {
@@ -1111,6 +1115,7 @@ class TikZRectangle extends TikZObject {
         this.pattern = 'none';
         this.rotation = 0; // Rotation angle in degrees
         this.rotationCenter = null; // {x, y} center point for rotation
+        this.name = this.id.replace('rect_', 'R');
     }
 
     toTikZ() {
@@ -1152,6 +1157,7 @@ class TikZPath extends TikZObject {
         this.fillOpacity = 1.0;
         this.pattern = 'none';
         this.nodes = [];
+        this.name = this.id.replace('path_', 'P');
     }
 
     toTikZ() {
@@ -1244,6 +1250,7 @@ class TikZBezier extends TikZObject {
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
+        this.name = this.id.replace('bezier_', 'B');
     }
     
     toTikZ() {
@@ -1282,6 +1289,7 @@ class TikZLabel extends TikZObject {
         this.position = 'above';
         this.distance = 0;
         this.fontSize = 'normal';
+        this.name = this.id.replace('label_', 'T');
         this.color = 'black';
     }
     
@@ -1331,6 +1339,7 @@ class TikZGrid extends TikZObject {
         this.step = 1.0;
         this.color = 'lightgray';
         this.thickness = 'very thin';
+        this.name = this.id.replace('grid_', 'G');
     }
     
     toTikZ() {
@@ -2482,7 +2491,7 @@ class TikZDrawApp {
             e.preventDefault();
 
             // Nudge amount: 0.01 units with Shift (fine), 0.1 units without (normal)
-            const nudgeAmount = e.shiftKey ? 0.01 : 0.1;
+            const nudgeAmount = (e.shiftKey || e.ctrlKey) ? 0.01 : 0.1;
             let dx = 0, dy = 0;
 
             switch(e.key) {
@@ -4427,6 +4436,10 @@ class TikZDrawApp {
     renderSegmentProperties(seg) {
         return `
             <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${seg.name}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">From:</span>
                 <div class="property-input">${this.renderCoordSelect(seg.from, 'from', [seg.to])}</div>
             </div>
@@ -4457,6 +4470,10 @@ class TikZDrawApp {
     
     renderVectorProperties(vec) {
         return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${vec.name}"></div>
+            </div>
             <div class="property-row">
                 <span class="property-label">From:</span>
                 <div class="property-input">${this.renderCoordSelect(vec.from, 'from', [vec.to])}</div>
@@ -4509,6 +4526,10 @@ class TikZDrawApp {
     renderCircleProperties(circle) {
         return `
             <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${circle.name}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Center:</span>
                 <div class="property-input">${this.renderCoordSelect(circle.center, 'center')}</div>
             </div>
@@ -4546,6 +4567,10 @@ class TikZDrawApp {
     renderArcProperties(arc) {
         return `
             <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${arc.name}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Center:</span>
                 <div class="property-input">${this.renderCoordSelect(arc.center, 'center')}</div>
             </div>
@@ -4574,6 +4599,10 @@ class TikZDrawApp {
     
     renderRectProperties(rect) {
         return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${rect.name}"></div>
+            </div>
             <div class="property-row">
                 <span class="property-label">Corner 1:</span>
                 <div class="property-input">${this.renderCoordSelect(rect.corner1, 'corner1', [rect.corner2])}</div>
@@ -4612,6 +4641,10 @@ class TikZDrawApp {
     renderPathProperties(path) {
         return `
             <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${path.name}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Points:</span>
                 <div class="property-input"><span style="color:#888;">${path.points.join(' → ')}</span></div>
             </div>
@@ -4648,6 +4681,10 @@ class TikZDrawApp {
     renderBezierProperties(bezier) {
         return `
             <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${bezier.name}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">From:</span>
                 <div class="property-input">${this.renderCoordSelect(bezier.from, 'from')}</div>
             </div>
@@ -4672,6 +4709,10 @@ class TikZDrawApp {
     
     renderLabelProperties(label) {
         return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${label.name}"></div>
+            </div>
             <div class="property-row">
                 <span class="property-label">At:</span>
                 <div class="property-input">${this.renderCoordSelect(label.at, 'at')}</div>
@@ -4714,6 +4755,10 @@ class TikZDrawApp {
     
     renderGridProperties(grid) {
         return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${grid.name}"></div>
+            </div>
             <div class="property-row">
                 <span class="property-label">X Range:</span>
                 <div class="property-input coord-inputs">
@@ -5109,15 +5154,15 @@ class TikZDrawApp {
     
     getObjectDisplayName(obj) {
         if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x.toFixed(2)}, ${obj.y.toFixed(2)})`;
-        if (obj instanceof TikZSegment) return `${obj.from} → ${obj.to}`;
-        if (obj instanceof TikZVector) return `${obj.from} → ${obj.to}`;
-        if (obj instanceof TikZCircle) return `${obj.center}, r=${obj.radius.toFixed(2)}`;
-        if (obj instanceof TikZArc) return `${obj.center}, ${obj.startAngle.toFixed(0)}°-${obj.endAngle.toFixed(0)}°`;
-        if (obj instanceof TikZRectangle) return `${obj.corner1} × ${obj.corner2}`;
-        if (obj instanceof TikZPath) return `${obj.points.length} points`;
-        if (obj instanceof TikZBezier) return `${obj.from} ~ ${obj.to}`;
-        if (obj instanceof TikZLabel) return `"${obj.text}" at ${obj.at}`;
-        if (obj instanceof TikZGrid) return `grid (${obj.xMin},${obj.yMin})-(${obj.xMax},${obj.yMax})`;
+        if (obj instanceof TikZSegment) return `${obj.name} (${obj.from} → ${obj.to})`;
+        if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
+        if (obj instanceof TikZCircle) return `${obj.name} (${obj.center}, r=${obj.radius.toFixed(2)})`;
+        if (obj instanceof TikZArc) return `${obj.name} (${obj.center}, ${obj.startAngle.toFixed(0)}°-${obj.endAngle.toFixed(0)}°)`;
+        if (obj instanceof TikZRectangle) return `${obj.name} (${obj.corner1} × ${obj.corner2})`;
+        if (obj instanceof TikZPath) return `${obj.name} (${obj.points.length} points)`;
+        if (obj instanceof TikZBezier) return `${obj.name} (${obj.from} ~ ${obj.to})`;
+        if (obj instanceof TikZLabel) return `${obj.name} ("${obj.text}" at ${obj.at})`;
+        if (obj instanceof TikZGrid) return `${obj.name} (${obj.xMin},${obj.yMin})-(${obj.xMax},${obj.yMax})`;
         return obj.id;
     }
     
@@ -5741,6 +5786,7 @@ class TikZDrawApp {
                 color: n.color
             }));
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZVector) {
             data.from = obj.from;
             data.to = obj.to;
@@ -5758,6 +5804,7 @@ class TikZDrawApp {
                 color: n.color
             }));
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZCircle) {
             data.center = obj.center;
             data.radius = obj.radius;
@@ -5768,6 +5815,7 @@ class TikZDrawApp {
             data.fillOpacity = obj.fillOpacity;
             data.pattern = obj.pattern;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZArc) {
             data.center = obj.center;
             data.radius = obj.radius;
@@ -5777,6 +5825,7 @@ class TikZDrawApp {
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZRectangle) {
             data.corner1 = obj.corner1;
             data.corner2 = obj.corner2;
@@ -5789,6 +5838,7 @@ class TikZDrawApp {
             data.rotation = obj.rotation;
             data.rotationCenter = obj.rotationCenter;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZPath) {
             data.points = [...obj.points];
             data.closed = obj.closed;
@@ -5807,6 +5857,7 @@ class TikZDrawApp {
                 segmentIndex: n.segmentIndex
             }));
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZBezier) {
             data.from = obj.from;
             data.control = obj.control;
@@ -5815,6 +5866,7 @@ class TikZDrawApp {
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZLabel) {
             data.at = obj.at;
             data.text = obj.text;
@@ -5823,6 +5875,7 @@ class TikZDrawApp {
             data.fontSize = obj.fontSize;
             data.color = obj.color;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZGrid) {
             data.xMin = obj.xMin;
             data.yMin = obj.yMin;
@@ -5832,6 +5885,7 @@ class TikZDrawApp {
             data.color = obj.color;
             data.thickness = obj.thickness;
             data.expanded = obj.expanded;
+            data.name = obj.name;
         }
         
         return data;
@@ -5938,6 +5992,7 @@ class TikZDrawApp {
                             return node;
                         });
                     }
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZVector':
                     obj = new TikZVector(data.from, data.to);
@@ -5955,6 +6010,7 @@ class TikZDrawApp {
                             return node;
                         });
                     }
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZCircle':
                     obj = new TikZCircle(data.center, data.radius);
@@ -5964,12 +6020,14 @@ class TikZDrawApp {
                     obj.fill = data.fill;
                     obj.fillOpacity = data.fillOpacity;
                     obj.pattern = data.pattern || 'none';
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZArc':
                     obj = new TikZArc(data.center, data.radius, data.startAngle, data.endAngle);
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZRectangle':
                     obj = new TikZRectangle(data.corner1, data.corner2);
@@ -5981,6 +6039,7 @@ class TikZDrawApp {
                     obj.pattern = data.pattern || 'none';
                     obj.rotation = data.rotation || 0;
                     obj.rotationCenter = data.rotationCenter || null;
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZPath':
                     obj = new TikZPath(data.points || []);
@@ -6000,12 +6059,14 @@ class TikZDrawApp {
                             return node;
                         });
                     }
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZBezier':
                     obj = new TikZBezier(data.from, data.control, data.to);
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZLabel':
                     obj = new TikZLabel(data.at, data.text);
@@ -6013,12 +6074,14 @@ class TikZDrawApp {
                     obj.distance = data.distance;
                     obj.fontSize = data.fontSize;
                     obj.color = data.color;
+                    obj.name = data.name || obj.name;
                     break;
                 case 'TikZGrid':
                     obj = new TikZGrid(data.xMin, data.yMin, data.xMax, data.yMax);
                     obj.step = data.step;
                     obj.color = data.color;
                     obj.thickness = data.thickness;
+                    obj.name = data.name || obj.name;
                     break;
                 default:
                     console.warn('Unknown object type:', data.type);
