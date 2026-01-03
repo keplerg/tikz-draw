@@ -5412,29 +5412,29 @@ class TikZDrawApp {
         
         // Area mouse handling
         let draggingArea = false;
-        area.addEventListener('mousedown', e => {
+        area.addEventListener('pointerdown', e => {
             draggingArea = true;
             this.handleAreaClick(e);
         });
         
-        document.addEventListener('mousemove', e => {
+        document.addEventListener('pointermove', e => {
             if (draggingArea) this.handleAreaClick(e);
         });
         
-        document.addEventListener('mouseup', () => draggingArea = false);
+        document.addEventListener('pointerup', () => draggingArea = false);
         
         // Hue slider
         let draggingHue = false;
-        hueSlider.addEventListener('mousedown', e => {
+        hueSlider.addEventListener('pointerdown', e => {
             draggingHue = true;
             this.handleHueClick(e);
         });
         
-        document.addEventListener('mousemove', e => {
+        document.addEventListener('pointermove', e => {
             if (draggingHue) this.handleHueClick(e);
         });
         
-        document.addEventListener('mouseup', () => draggingHue = false);
+        document.addEventListener('pointerup', () => draggingHue = false);
         
         // RGB inputs
         ['colorR', 'colorG', 'colorB'].forEach(id => {

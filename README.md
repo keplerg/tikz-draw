@@ -24,7 +24,7 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 
 ## Getting Started
 
-Simply open `tikz-draw.html` in a modern web browser. No installation or server required.
+Simply open `tikz-draw.html` in a modern web browser. No installation or server required. [Try the demo](https:tikz-draw.online/tikz-draw.html)
 
 ```bash
 # Clone the repository
