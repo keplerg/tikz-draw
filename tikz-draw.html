@@ -1098,7 +1098,7 @@ class TikZArc extends TikZObject {
         const startX = parseFloat(app.getCoordByName(this.center)?.x || 0) + this.radius * Math.cos(this.startAngle * Math.PI / 180);
         const startY = parseFloat(app.getCoordByName(this.center)?.y || 0) + this.radius * Math.sin(this.startAngle * Math.PI / 180);
         
-        return `  \\draw${optStr} (${startX.toFixed(2)}, ${startY.toFixed(2)}) arc (${this.startAngle}:${this.endAngle}:${this.radius.toFixed(2)});`;
+        return `  \\draw${optStr} (${startX.toFixed(2)}, ${startY.toFixed(2)}) arc (${this.startAngle.toFixed(1)}:${this.endAngle.toFixed(1)}:${this.radius.toFixed(2)});`;
     }
 }
 
@@ -4004,7 +4004,7 @@ class TikZDrawApp {
         // ctx.fillStyle = '#e5c07b';
         ctx.fillStyle = '#000';
         ctx.font = 'bold 16px sans-serif';
-        const angleText = `${displayAngle.toFixed(0)}°`;
+        const angleText = `${displayAngle.toFixed(1)}°`;
         ctx.fillText(angleText, centerPos.x + 15, centerPos.y - 15);
         ctx.restore();
 
@@ -4535,7 +4535,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Radius:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${circle.radius}"></div>
+                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${circle.radius.toFixed(2)}"></div>
             </div>
             <div class="property-row">
                 <span class="property-label">Color:</span>
@@ -4576,15 +4576,15 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Radius:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${arc.radius}"></div>
+                <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${arc.radius.toFixed(2)}"></div>
             </div>
             <div class="property-row">
                 <span class="property-label">Start °:</span>
-                <div class="property-input"><input type="number" step="5" data-prop="startAngle" value="${arc.startAngle}"></div>
+                <div class="property-input"><input type="number" step="5" data-prop="startAngle" value="${arc.startAngle.toFixed(1)}"></div>
             </div>
             <div class="property-row">
                 <span class="property-label">End °:</span>
-                <div class="property-input"><input type="number" step="5" data-prop="endAngle" value="${arc.endAngle}"></div>
+                <div class="property-input"><input type="number" step="5" data-prop="endAngle" value="${arc.endAngle.toFixed(1)}"></div>
             </div>
             <div class="property-row">
                 <span class="property-label">Color:</span>
@@ -4804,7 +4804,7 @@ class TikZDrawApp {
 
                 // Update label preview if relevant property changed
                 if (this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZLabel &&
-                    (el.dataset.prop === 'text' || el.dataset.prop === 'fontSize' || el.dataset.prop === 'color')) {
+                    (el.dataset.prop === 'text' || el.dataset.prop === 'label' || el.dataset.prop === 'fontSize' || el.dataset.prop === 'color')) {
                     this.updateLabelPreview();
                 }
             });
@@ -4879,7 +4879,7 @@ class TikZDrawApp {
         // Clear LaTeX cache if text-related property changed
         if (prop === 'text' || prop === 'label' || prop === 'fontSize') {
             // Remove old cached version
-            const oldText = selectedObj['text'] || this.selectedObject['label'];
+            const oldText = selectedObj['text'] || selectedObj['label'];
             if (oldText) {
                 // Clear any cached renders for the old text
                 for (const key of this.latexCache.keys()) {
@@ -5157,7 +5157,7 @@ class TikZDrawApp {
         if (obj instanceof TikZSegment) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZCircle) return `${obj.name} (${obj.center}, r=${obj.radius.toFixed(2)})`;
-        if (obj instanceof TikZArc) return `${obj.name} (${obj.center}, ${obj.startAngle.toFixed(0)}°-${obj.endAngle.toFixed(0)}°)`;
+        if (obj instanceof TikZArc) return `${obj.name} (${obj.center}, ${obj.startAngle.toFixed(1)}°-${obj.endAngle.toFixed(1)}°)`;
         if (obj instanceof TikZRectangle) return `${obj.name} (${obj.corner1} × ${obj.corner2})`;
         if (obj instanceof TikZPath) return `${obj.name} (${obj.points.length} points)`;
         if (obj instanceof TikZBezier) return `${obj.name} (${obj.from} ~ ${obj.to})`;
