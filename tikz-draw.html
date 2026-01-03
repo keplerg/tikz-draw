@@ -5093,6 +5093,7 @@ class TikZDrawApp {
     updateObjectList() {
         const list = document.getElementById('objectList');
         let html = '';
+        let lastObjectSelected = null;
         
         for (const obj of this.objects) {
             const isSelected = this.selectedObjects.includes(obj);
@@ -5108,6 +5109,10 @@ class TikZDrawApp {
                 <span class="obj-name">${name}</span>
             </div>`;
             
+            if (isSelected) {
+                lastObjectSelected = obj;
+            }
+
             // Render subobjects if expanded
             if (hasSubObjects && obj.expanded) {
                 const subs = obj.getSubObjects();
@@ -5124,8 +5129,13 @@ class TikZDrawApp {
         }
         
         list.innerHTML = html;
-
         this.updateObjectCount();
+
+        // make sure selected item(s) are in view
+        if (lastObjectSelected) {
+            const element = document.querySelector('[data-id="' + lastObjectSelected.id + '"]');
+            element.scrollIntoView();
+        }
     }
     
     getObjectIcon(obj) {
