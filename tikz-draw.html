@@ -885,7 +885,8 @@ const TIKZ_PATTERNS = {
     'crosshatch dots': 'Crosshatch Dots',
     'fivepointed stars': 'Stars',
     'sixpointed stars': '6-Point Stars',
-    'bricks': 'Bricks'
+    'bricks': 'Bricks',
+    'checkerboard': 'Checkerboard'
 };
 
 // Object types
@@ -3324,12 +3325,35 @@ class TikZDrawApp {
         }
     }
 
+    drawStar(ctx, cx, cy, outerRadius, innerRadius, points) {
+        let angle = Math.PI / 2 * 3; // Start from the top (12 o'clock position)
+        let step = Math.PI / points; // Angle between points
+
+        ctx.beginPath();
+        // Move to the first outer point
+        ctx.moveTo(cx + Math.cos(angle) * outerRadius, cy + Math.sin(angle) * outerRadius);
+
+        for (let i = 0; i < points; i++) {
+            // Outer point
+            ctx.lineTo(cx + Math.cos(angle) * outerRadius, cy + Math.sin(angle) * outerRadius);
+            angle += step;
+
+            // Inner point
+            ctx.lineTo(cx + Math.cos(angle) * innerRadius, cy + Math.sin(angle) * innerRadius);
+            angle += step;
+        }
+
+        ctx.closePath();
+        ctx.fill(); // Fill the star with the current fillStyle
+    }
+      
+
     createCanvasPattern(patternName, fillColor = '#808080') {
         if (patternName === 'none') return null;
 
         // Create a small canvas for the pattern
         const patternCanvas = document.createElement('canvas');
-        const patternSize = 10;
+        const patternSize = 21;
         patternCanvas.width = patternSize;
         patternCanvas.height = patternSize;
         const pCtx = patternCanvas.getContext('2d');
@@ -3341,80 +3365,132 @@ class TikZDrawApp {
         switch (patternName) {
             case 'horizontal lines':
                 pCtx.beginPath();
-                pCtx.moveTo(0, 5);
-                pCtx.lineTo(10, 5);
+                pCtx.moveTo(0, 11);
+                pCtx.lineTo(21, 11);
+                pCtx.moveTo(0, 1);
+                pCtx.lineTo(21, 1);
                 pCtx.stroke();
                 break;
             case 'vertical lines':
                 pCtx.beginPath();
-                pCtx.moveTo(5, 0);
-                pCtx.lineTo(5, 10);
+                pCtx.moveTo(1, 0);
+                pCtx.lineTo(1, 21);
+                pCtx.moveTo(11, 0);
+                pCtx.lineTo(11, 21);
                 pCtx.stroke();
                 break;
             case 'north east lines':
                 pCtx.beginPath();
+                pCtx.moveTo(0, 21);
+                pCtx.lineTo(21, 0);
                 pCtx.moveTo(0, 10);
                 pCtx.lineTo(10, 0);
+                pCtx.moveTo(21, 11);
+                pCtx.lineTo(11, 21);
                 pCtx.stroke();
                 break;
             case 'north west lines':
                 pCtx.beginPath();
                 pCtx.moveTo(0, 0);
-                pCtx.lineTo(10, 10);
+                pCtx.lineTo(21, 21);
+                pCtx.moveTo(0, 10);
+                pCtx.lineTo(10, 21);
+                pCtx.moveTo(11, 0);
+                pCtx.lineTo(21, 11);
                 pCtx.stroke();
                 break;
             case 'grid':
                 pCtx.beginPath();
                 pCtx.moveTo(5, 0);
-                pCtx.lineTo(5, 10);
+                pCtx.lineTo(5, 21);
+                pCtx.moveTo(10, 0);
+                pCtx.lineTo(10, 21);
+                pCtx.moveTo(15, 0);
+                pCtx.lineTo(15, 21);
+                pCtx.moveTo(20, 0);
+                pCtx.lineTo(20, 21);
                 pCtx.moveTo(0, 5);
-                pCtx.lineTo(10, 5);
+                pCtx.lineTo(21, 5);
+                pCtx.moveTo(0, 10);
+                pCtx.lineTo(21, 10);
+                pCtx.moveTo(0, 15);
+                pCtx.lineTo(21, 15);
+                pCtx.moveTo(0, 20);
+                pCtx.lineTo(21, 20);
                 pCtx.stroke();
                 break;
             case 'crosshatch':
                 pCtx.beginPath();
                 pCtx.moveTo(0, 0);
-                pCtx.lineTo(10, 10);
-                pCtx.moveTo(0, 10);
-                pCtx.lineTo(10, 0);
+                pCtx.lineTo(21, 20);
+                pCtx.moveTo(0, 21);
+                pCtx.lineTo(20, 0);
+                pCtx.moveTo(10, 0);
+                pCtx.lineTo(21, 11);
+                pCtx.moveTo(0, 11);
+                pCtx.lineTo(11, 21);
+                pCtx.moveTo(10, 0);
+                pCtx.lineTo(0, 10);
+                pCtx.moveTo(21, 11);
+                pCtx.lineTo(11, 21);
                 pCtx.stroke();
                 break;
             case 'dots':
                 pCtx.beginPath();
+                pCtx.moveTo(5, 5);
                 pCtx.arc(5, 5, 1, 0, Math.PI * 2);
+                pCtx.moveTo(5, 15);
+                pCtx.arc(5, 15, 1, 0, Math.PI * 2);
+                pCtx.moveTo(15, 5);
+                pCtx.arc(15, 5, 1, 0, Math.PI * 2);
+                pCtx.moveTo(15, 15);
+                pCtx.arc(15, 15, 1, 0, Math.PI * 2);
                 pCtx.fill();
                 break;
             case 'crosshatch dots':
                 pCtx.beginPath();
                 pCtx.moveTo(0, 0);
-                pCtx.lineTo(10, 10);
-                pCtx.moveTo(0, 10);
-                pCtx.lineTo(10, 0);
-                pCtx.stroke();
-                pCtx.beginPath();
-                pCtx.arc(5, 5, 1, 0, Math.PI * 2);
+                pCtx.arc(0, 0, 1, 0, Math.PI * 2);
+                pCtx.moveTo(21, 0);
+                pCtx.arc(21, 0, 1, 0, Math.PI * 2);
+                pCtx.moveTo(0, 21);
+                pCtx.arc(0, 21, 1, 0, Math.PI * 2);
+                pCtx.moveTo(21, 21);
+                pCtx.arc(21, 21, 1, 0, Math.PI * 2);
+
+                pCtx.moveTo(4, 10);
+                pCtx.arc(4, 10, 1, 0, Math.PI * 2);
+                pCtx.moveTo(16, 10);
+                pCtx.arc(16, 10, 1, 0, Math.PI * 2);
+                pCtx.moveTo(10, 4);
+                pCtx.arc(10, 4, 1, 0, Math.PI * 2);
+                pCtx.moveTo(10, 16);
+                pCtx.arc(10, 16, 1, 0, Math.PI * 2);
                 pCtx.fill();
                 break;
             case 'fivepointed stars':
+                this.drawStar(pCtx, 10, 10, 7, 3, 5);
+                break;
             case 'sixpointed stars':
-                // Simple star representation with a small asterisk
-                pCtx.beginPath();
-                pCtx.moveTo(5, 2);
-                pCtx.lineTo(5, 8);
-                pCtx.moveTo(2, 5);
-                pCtx.lineTo(8, 5);
-                pCtx.moveTo(3, 3);
-                pCtx.lineTo(7, 7);
-                pCtx.moveTo(3, 7);
-                pCtx.lineTo(7, 3);
-                pCtx.stroke();
+                this.drawStar(pCtx, 10, 10, 7, 3, 6);
                 break;
             case 'bricks':
                 pCtx.beginPath();
-                pCtx.strokeRect(0, 0, 10, 5);
-                pCtx.strokeRect(0, 5, 5, 5);
-                pCtx.strokeRect(5, 5, 5, 5);
+                pCtx.moveTo(0, 0);
+                pCtx.lineTo(21, 0);
+                pCtx.moveTo(0, 11);
+                pCtx.lineTo(21, 11);
+                pCtx.moveTo(6, 0);
+                pCtx.lineTo(6, 11)
+                pCtx.moveTo(14, 11);
+                pCtx.lineTo(14, 21)
                 pCtx.stroke();
+                break;
+            case 'checkerboard':
+                pCtx.beginPath();
+                pCtx.rect(0, 0, 10, 10);
+                pCtx.rect(10, 10, 10, 10);
+                pCtx.fill();
                 break;
             default:
                 return null;
