@@ -1348,7 +1348,7 @@ class TikZImage extends TikZObject {
 
         // Add rotation if not zero
         if (this.rotation !== 0) {
-            graphicsOpts += `,angle=${this.rotation.toFixed(1)}`;
+            graphicsOpts += `,angle=-${this.rotation.toFixed(1)}`;
         }
 
             return `  \\node${optStr} at (${this.at}.${this.anchor}) {\\includegraphics[${graphicsOpts}]{${this.filename}}};`;
@@ -2879,10 +2879,8 @@ class TikZDrawApp {
                 this.showToast('Skipping rectangles - they cannot be rotated', 'error');
             }
 
-            // Separate images from coordinate-based objects
-            // Images rotate around their anchor point by updating their rotation property
+            // Images rotate around their anchor point by updating their rotation property as well as their coordinate.
             const images = objectsToRotate.filter(obj => obj instanceof TikZImage);
-            // const coordBasedObjects = objectsToRotate.filter(obj => !(obj instanceof TikZImage));
             const coordBasedObjects = objectsToRotate;
 
             // Store images and their original rotations
