@@ -2882,7 +2882,8 @@ class TikZDrawApp {
             // Separate images from coordinate-based objects
             // Images rotate around their anchor point by updating their rotation property
             const images = objectsToRotate.filter(obj => obj instanceof TikZImage);
-            const coordBasedObjects = objectsToRotate.filter(obj => !(obj instanceof TikZImage));
+            // const coordBasedObjects = objectsToRotate.filter(obj => !(obj instanceof TikZImage));
+            const coordBasedObjects = objectsToRotate;
 
             // Store images and their original rotations
             this.rotateImages = images.map(img => ({
