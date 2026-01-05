@@ -86,7 +86,7 @@
         
         button[disabled] {
             pointer-events: none;
-            opacity: 0.5; 
+            opacity: 1.0; 
             cursor: not-allowed;
         }
 
@@ -651,6 +651,10 @@
                 <span class="tool-icon">#</span>
                 <span>Grid</span>
             </div>
+            <div class="tool" data-tool="image" title="Image (I)">
+                <span class="tool-icon">🖼</span>
+                <span>Image</span>
+            </div>
         </div>
         
         <div class="canvas-container" id="canvasContainer">
@@ -893,7 +897,7 @@ const TIKZ_PATTERNS = {
 const TYPE_NAMES = {
     'coord': 'Point', 'line': 'Segment', 'vec': 'Vector',
     'circle': 'Circle', 'arc': 'Arc', 'rect': 'Rectangle',
-    'path': 'Path', 'bezier': 'Bezier Curve', 'label': 'Label', 'grid': 'Grid'
+    'path': 'Path', 'bezier': 'Bezier Curve', 'label': 'Label', 'image': 'Image', 'grid': 'Grid'
 };
         
 // ============================================================================
@@ -1302,6 +1306,60 @@ class TikZLabel extends TikZObject {
         
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  \\node${optStr} at (${this.at}) {${this.text}};`;
+    }
+}
+
+class TikZImage extends TikZObject {
+    constructor(atCoord, imageData, filename, mimeType) {
+        super('image');
+        this.at = atCoord;              // Coordinate name anchor point
+        this.imageData = imageData;      // Base64 data URL
+        this.filename = filename;        // Original filename for export
+        this.mimeType = mimeType;        // 'image/png', 'image/jpeg', 'image/svg+xml'
+        this.width = 4.0;                // Width in TikZ units
+        this.height = null;              // Auto-calculated to preserve aspect (null = auto)
+        this.opacity = 1.0;              // 0.0 to 1.0 for transparency
+        this.anchor = 'center';          // TikZ anchor position
+        this.rotation = 0;               // Rotation angle in degrees
+        this.name = this.id.replace('image_', 'I');
+
+        // Cached HTML Image object for rendering
+        this.cachedImage = null;
+        this.naturalAspect = 1.0;        // width/height ratio
+    }
+
+    toTikZ() {
+        // Export as \node with \includegraphics
+        let opts = [];
+
+        // Add opacity if not fully opaque
+        if (this.opacity < 1.0) {
+            opts.push(`opacity=${Number.parseFloat(this.opacity).toFixed(2)}`);
+        }
+
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+
+        // Calculate height if not explicitly set (preserve aspect ratio)
+        const heightStr = this.height
+            ? `height=${this.height.toFixed(2)}cm`
+            : '';
+        const widthStr = `width=${this.width.toFixed(2)}cm`;
+        let graphicsOpts = heightStr ? `${widthStr},${heightStr}` : widthStr;
+
+        // Add rotation if not zero
+        if (this.rotation !== 0) {
+            graphicsOpts += `,angle=${this.rotation.toFixed(1)}`;
+        }
+
+            return `  \\node${optStr} at (${this.at}.${this.anchor}) {\\includegraphics[${graphicsOpts}]{${this.filename}}};`;
+    }
+
+    getBounds() {
+        const coord = app.getCoordByName(this.at);
+        if (!coord) return null;
+
+        const h = this.height || (this.width / this.naturalAspect);
+        return { x: coord.x, y: coord.y, width: this.width, height: h };
     }
 }
 
@@ -1942,6 +2000,47 @@ class TikZDrawApp {
                     if (dist < 0.5) return obj;
                 }
             }
+            else if (obj instanceof TikZImage) {
+                const at = this.getCoordByName(obj.at);
+                if (at) {
+                    // Hit test for image - check if inside image bounds
+                    const bounds = obj.getBounds();
+                    if (bounds) {
+                        const h = obj.height || (obj.width / obj.naturalAspect);
+                        const anchor = obj.anchor || 'center';
+
+                        // Calculate actual bounds based on anchor
+                        let minX = bounds.x;
+                        let maxX = bounds.x + obj.width;
+                        let minY = bounds.y;
+                        let maxY = bounds.y + h;
+
+                        // Adjust based on anchor
+                        if (anchor.includes('east')) {
+                            minX = bounds.x - obj.width;
+                            maxX = bounds.x;
+                        } else if (!anchor.includes('west')) {
+                            minX = bounds.x - obj.width / 2;
+                            maxX = bounds.x + obj.width / 2;
+                        }
+
+                        if (anchor.includes('north')) {
+                            minY = bounds.y - h;
+                            maxY = bounds.y;
+                        } else if (anchor.includes('south')) {
+                            minY = bounds.y;
+                            maxY = bounds.y + h;
+                        } else {
+                            minY = bounds.y - h / 2;
+                            maxY = bounds.y + h / 2;
+                        }
+
+                        if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) {
+                            return obj;
+                        }
+                    }
+                }
+            }
             else if (obj instanceof TikZGrid) {
                 // Grid is selectable but low priority
                 if (wx >= obj.xMin && wx <= obj.xMax && wy >= obj.yMin && wy <= obj.yMax) {
@@ -2049,6 +2148,8 @@ class TikZDrawApp {
             coordNames.push(obj.from, obj.control, obj.to);
         } else if (obj instanceof TikZLabel) {
             coordNames.push(obj.at);
+        } else if (obj instanceof TikZImage) {
+            coordNames.push(obj.at);
         }
 
         return coordNames;
@@ -2118,6 +2219,8 @@ class TikZDrawApp {
             if (obj.control === oldName) obj.control = newName;
             if (obj.to === oldName) obj.to = newName;
         } else if (obj instanceof TikZLabel) {
+            if (obj.at === oldName) obj.at = newName;
+        } else if (obj instanceof TikZImage) {
             if (obj.at === oldName) obj.at = newName;
         }
     }
@@ -2327,7 +2430,7 @@ class TikZDrawApp {
         }
 
         // Handle rotating object
-        if (this.isRotating && this.rotateCenter && this.rotateOriginalPositions.length > 0) {
+        if (this.isRotating && this.rotateCenter) {
             this.canvas.style.cursor = 'crosshair';
 
             // Calculate current angle from center to mouse
@@ -2344,14 +2447,23 @@ class TikZDrawApp {
             }
 
             // Rotate all coordinates to their new positions
-            for (const item of this.rotateOriginalPositions) {
-                const rotated = this.rotatePoint(
-                    item.x, item.y,
-                    this.rotateCenter.x, this.rotateCenter.y,
-                    rotationAngle * Math.PI / 180
-                );
-                item.coord.x = rotated.x;
-                item.coord.y = rotated.y;
+            if (this.rotateOriginalPositions) {
+                for (const item of this.rotateOriginalPositions) {
+                    const rotated = this.rotatePoint(
+                        item.x, item.y,
+                        this.rotateCenter.x, this.rotateCenter.y,
+                        rotationAngle * Math.PI / 180
+                    );
+                    item.coord.x = rotated.x;
+                    item.coord.y = rotated.y;
+                }
+            }
+
+            // Update image rotation properties
+            if (this.rotateImages && this.rotateImages.length > 0) {
+                for (const item of this.rotateImages) {
+                    item.image.rotation = item.originalRotation - rotationAngle;
+                }
             }
 
             this.render();
@@ -2420,6 +2532,7 @@ class TikZDrawApp {
             this.rotateCoords = [];
             this.rotateOriginalPositions = [];
             this.rotateRectangles = [];
+            this.rotateImages = [];
             // Reset cursor back to rotate tool cursor
             if (this.currentTool === 'rotate') {
                 this.canvas.style.cursor = 'crosshair';
@@ -2464,7 +2577,7 @@ class TikZDrawApp {
         const toolKeys = {
             'v': 'select', 'm': 'move', 'o': 'rotate', 'p': 'point', 'l': 'line', 'a': 'vector',
             'c': 'circle', 'r': 'arc', 'b': 'rect', 't': 'label',
-            'h': 'path', 'q': 'bezier', 'g': 'grid'
+            'h': 'path', 'q': 'bezier', 'g': 'grid', 'i': 'image'
         };
         
         if (!isInputActive && toolKeys[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) {
@@ -2627,6 +2740,9 @@ class TikZDrawApp {
             case 'label':
                 this.handleLabelClick(snapped);
                 break;
+            case 'image':
+                this.handleImageClick(snapped);
+                break;
             case 'path':
                 this.handlePathClick(snapped);
                 break;
@@ -2763,10 +2879,21 @@ class TikZDrawApp {
                 this.showToast('Skipping rectangles - they cannot be rotated', 'error');
             }
 
-            // Clone shared coordinates before rotating
-            // Collect all coordinate names used by selected objects
+            // Separate images from coordinate-based objects
+            // Images rotate around their anchor point by updating their rotation property
+            const images = objectsToRotate.filter(obj => obj instanceof TikZImage);
+            const coordBasedObjects = objectsToRotate.filter(obj => !(obj instanceof TikZImage));
+
+            // Store images and their original rotations
+            this.rotateImages = images.map(img => ({
+                image: img,
+                originalRotation: img.rotation || 0
+            }));
+
+            // Clone shared coordinates before rotating (only for coordinate-based objects)
+            // Collect all coordinate names used by selected objects (excluding images' anchors)
             const coordNamesInSelection = new Set();
-            for (const rotObj of objectsToRotate) {
+            for (const rotObj of coordBasedObjects) {
                 if (rotObj instanceof TikZCoordinate) {
                     coordNamesInSelection.add(rotObj.name);
                 } else {
@@ -2797,8 +2924,8 @@ class TikZDrawApp {
                     const cloned = this.cloneCoordinate(coordName);
                     if (cloned) {
                         this.objects.push(cloned);
-                        // Update all selected objects to reference the cloned coordinate
-                        for (const rotObj of objectsToRotate) {
+                        // Update all coordinate-based selected objects to reference the cloned coordinate
+                        for (const rotObj of coordBasedObjects) {
                             if (rotObj instanceof TikZCoordinate) continue;
                             this.updateObjectCoordinateReference(rotObj, coordName, cloned.name);
                         }
@@ -2806,14 +2933,24 @@ class TikZDrawApp {
                 }
             }
 
-            // Calculate center of rotation
+            // Calculate center of rotation from all objects (including images)
             this.rotateCenter = this.calculateSelectionCenter(objectsToRotate);
 
-            if (!this.rotateCenter) return; // No valid coordinates to rotate
+            if (!this.rotateCenter && coordBasedObjects.length > 0) return; // No valid coordinates to rotate
 
-            // Collect all unique coordinates to rotate (after cloning)
+            // For image-only rotation, use the image's anchor as center
+            if (!this.rotateCenter && images.length > 0) {
+                const imgCoord = this.getCoordByName(images[0].at);
+                if (imgCoord) {
+                    this.rotateCenter = { x: imgCoord.x, y: imgCoord.y };
+                } else {
+                    return;
+                }
+            }
+
+            // Collect all unique coordinates to rotate (after cloning, only for coordinate-based objects)
             const coordSet = new Set();
-            for (const rotObj of objectsToRotate) {
+            for (const rotObj of coordBasedObjects) {
                 if (rotObj instanceof TikZCoordinate) {
                     coordSet.add(rotObj);
                 } else {
@@ -2996,7 +3133,84 @@ class TikZDrawApp {
         
         this.render();
     }
-    
+
+    handleImageClick(snapped) {
+        // Create or find coordinate at click position
+        let coord = this.findCoordNear(snapped.x, snapped.y, 1.0);
+        if (!coord) {
+            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+            this.addObject(coord);
+        }
+
+        // Open file picker
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/jpeg,image/jpg,image/svg+xml';
+
+        input.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) {
+                this.loadImageFile(file, coord.name);
+            }
+        });
+
+        input.click();
+    }
+
+    loadImageFile(file, coordName) {
+        // Validate file size (warn if > 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            const proceed = confirm(
+                `This image is ${Number.parseFloat((file.size / 1024 / 1024)).toFixed(1)}MB. ` +
+                `Large images will increase project file size. Continue?`
+            );
+            if (!proceed) return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = event => {
+            const dataUrl = event.target.result;
+
+            // Load image to get natural dimensions
+            const img = new Image();
+            img.onload = () => {
+                const aspect = img.naturalWidth / img.naturalHeight;
+
+                // Create TikZImage object
+                const tikzImg = new TikZImage(
+                    coordName,
+                    dataUrl,
+                    file.name,
+                    file.type
+                );
+                tikzImg.naturalAspect = aspect;
+                tikzImg.cachedImage = img;
+
+                this.saveState(); // For undo
+                this.addObject(tikzImg);
+                this.selectedObjects = [tikzImg];
+                this.updatePropertiesPanel();
+                this.updateObjectList();
+                this.updateUndoRedoButtons();
+                this.render();
+
+                this.showToast(`Image "${file.name}" added!`, 'success');
+            };
+
+            img.onerror = () => {
+                this.showToast('Failed to load image', 'error');
+            };
+
+            img.src = dataUrl;
+        };
+
+        reader.onerror = () => {
+            this.showToast('Failed to read image file', 'error');
+        };
+
+        reader.readAsDataURL(file);
+    }
+
     handlePathClick(snapped) {
         let coord = this.findCoordNear(snapped.x, snapped.y);
         if (!coord) {
@@ -3091,7 +3305,8 @@ class TikZDrawApp {
             'label': 'Click near a point to add a label',
             'path': 'Click points, click first point to close',
             'bezier': 'Click start, control point, then end',
-            'grid': 'Click two corners for grid area'
+            'grid': 'Click two corners for grid area',
+            'image': 'Click to place image anchor point'
         };
         
         document.getElementById('statusTip').textContent = tips[this.currentTool] || '';
@@ -3215,8 +3430,11 @@ class TikZDrawApp {
     
     drawObject(obj) {
         const ctx = this.ctx;
-        
-        if (obj instanceof TikZGrid) {
+
+        if (obj instanceof TikZImage) {
+            this.drawImage(obj);
+        }
+        else if (obj instanceof TikZGrid) {
             this.drawGrid(obj);
         }
         else if (obj instanceof TikZCoordinate) {
@@ -3790,7 +4008,69 @@ class TikZDrawApp {
         }
         ctx.stroke();
     }
-    
+
+    drawImage(imgObj) {
+        const coord = this.getCoordByName(imgObj.at);
+        if (!coord) return;
+
+        // Ensure image is loaded into cache
+        if (!imgObj.cachedImage && imgObj.imageData) {
+            const img = new Image();
+            img.onload = () => {
+                imgObj.cachedImage = img;
+                imgObj.naturalAspect = img.naturalWidth / img.naturalHeight;
+                this.render(); // Re-render once loaded
+            };
+            img.src = imgObj.imageData;
+            return; // Skip this frame, will render next time
+        }
+
+        if (!imgObj.cachedImage) return;
+
+        const ctx = this.ctx;
+        const pos = this.worldToScreen(coord.x, coord.y);
+
+        // Calculate dimensions in screen space
+        const width = imgObj.width * this.zoom;
+        const height = imgObj.height
+            ? imgObj.height * this.zoom
+            : width / imgObj.naturalAspect;
+
+        // Calculate anchor offset
+        let offsetX = 0, offsetY = 0;
+        const anchor = imgObj.anchor || 'center';
+
+        // Horizontal anchor
+        if (anchor.includes('east')) offsetX = -width;
+        else if (!anchor.includes('west')) offsetX = -width / 2; // center
+
+        // Vertical anchor (note: canvas Y is inverted)
+        if (anchor.includes('north')) offsetY = 0;
+        else if (anchor.includes('south')) offsetY = -height;
+        else offsetY = -height / 2; // center
+
+        // Draw with opacity and rotation
+        ctx.save();
+        ctx.globalAlpha = imgObj.opacity;
+
+        // Apply rotation if needed
+        if (imgObj.rotation && imgObj.rotation !== 0) {
+            // Translate to anchor point, rotate, then translate back
+            ctx.translate(pos.x, pos.y);
+            ctx.rotate((imgObj.rotation * Math.PI) / 180); // Convert degrees to radians
+            ctx.translate(-pos.x, -pos.y);
+        }
+
+        ctx.drawImage(
+            imgObj.cachedImage,
+            pos.x + offsetX,
+            pos.y + offsetY,
+            width,
+            height
+        );
+        ctx.restore();
+    }
+
     drawLabel(node, wx, wy) {
         const ctx = this.ctx;
         const pos = this.worldToScreen(wx, wy);
@@ -3968,6 +4248,29 @@ class TikZDrawApp {
                 const pos = this.worldToScreen(coord.x, coord.y);
                 ctx.beginPath();
                 ctx.arc(pos.x, pos.y, 12, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        else if (obj instanceof TikZImage) {
+            const coord = this.getCoordByName(obj.at);
+            if (coord) {
+                const pos = this.worldToScreen(coord.x, coord.y);
+                const width = obj.width * this.zoom;
+                const height = obj.height ? obj.height * this.zoom : width / obj.naturalAspect;
+                const anchor = obj.anchor || 'center';
+
+                // Calculate offset based on anchor
+                let offsetX = 0, offsetY = 0;
+                if (anchor.includes('east')) offsetX = -width;
+                else if (!anchor.includes('west')) offsetX = -width / 2;
+
+                if (anchor.includes('north')) offsetY = 0;
+                else if (anchor.includes('south')) offsetY = -height;
+                else offsetY = -height / 2;
+
+                // Draw dashed rectangle around image
+                ctx.beginPath();
+                ctx.rect(pos.x + offsetX - 4, pos.y + offsetY - 4, width + 8, height + 8);
                 ctx.stroke();
             }
         }
@@ -4158,6 +4461,12 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZLabel) {
+            const at = this.getCoordByName(obj.at);
+            if (at) {
+                return at.x >= minX && at.x <= maxX && at.y >= minY && at.y <= maxY;
+            }
+        }
+        else if (obj instanceof TikZImage) {
             const at = this.getCoordByName(obj.at);
             if (at) {
                 return at.x >= minX && at.x <= maxX && at.y >= minY && at.y <= maxY;
@@ -4376,6 +4685,8 @@ class TikZDrawApp {
             html += this.renderBezierProperties(obj);
         } else if (obj instanceof TikZLabel) {
             html += this.renderLabelProperties(obj);
+        } else if (obj instanceof TikZImage) {
+            html += this.renderImageProperties(obj);
         } else if (obj instanceof TikZGrid) {
             html += this.renderGridProperties(obj);
         }
@@ -4828,7 +5139,99 @@ class TikZDrawApp {
             </div>
         `;
     }
-    
+
+    renderImageProperties(img) {
+        const aspectLocked = img.height === null;
+        const displayHeight = img.height || (img.width / img.naturalAspect);
+
+        return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input">
+                    <input type="text" data-prop="name" value="${img.name}">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">At:</span>
+                <div class="property-input">
+                    ${this.renderCoordSelect(img.at, 'at')}
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Filename:</span>
+                <div class="property-input">
+                    <input type="text" data-prop="filename" value="${img.filename}" placeholder="image.png">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Width:</span>
+                <div class="property-input">
+                    <input type="number" step="0.1" min="0.1" data-prop="width"
+                           value="${img.width.toFixed(2)}">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Height:</span>
+                <div class="property-input">
+                    <input type="number" step="0.1" min="0.1" data-prop="height"
+                           id="imageHeight"
+                           value="${displayHeight.toFixed(2)}"
+                           ${aspectLocked ? 'disabled' : ''}>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label"></span>
+                <div class="property-input">
+                    <label style="font-size:11px;cursor:pointer;user-select:none;">
+                        <input type="checkbox" id="lockAspect"
+                               ${aspectLocked ? 'checked' : ''}>
+                        Lock aspect ratio
+                    </label>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input">
+                    <input type="range" min="0" max="1" step="0.05"
+                           data-prop="opacity" value="${img.opacity}" id="opacitySlider">
+                    <div style="text-align:center;font-size:10px;color:#888;" id="opacityValue">
+                        ${Math.round(img.opacity * 100)}%
+                    </div>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Anchor:</span>
+                <div class="property-input">
+                    <select data-prop="anchor">
+                        <option value="south west" ${img.anchor === 'south west' ? 'selected' : ''}>south west</option>
+                        <option value="south" ${img.anchor === 'south' ? 'selected' : ''}>south</option>
+                        <option value="south east" ${img.anchor === 'south east' ? 'selected' : ''}>south east</option>
+                        <option value="west" ${img.anchor === 'west' ? 'selected' : ''}>west</option>
+                        <option value="center" ${img.anchor === 'center' ? 'selected' : ''}>center</option>
+                        <option value="east" ${img.anchor === 'east' ? 'selected' : ''}>east</option>
+                        <option value="north west" ${img.anchor === 'north west' ? 'selected' : ''}>north west</option>
+                        <option value="north" ${img.anchor === 'north' ? 'selected' : ''}>north</option>
+                        <option value="north east" ${img.anchor === 'north east' ? 'selected' : ''}>north east</option>
+                    </select>
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Preview:</span>
+                <div class="property-input" style="text-align:center;">
+                    <img src="${img.imageData}" style="max-width:100%;max-height:100px;border:1px solid #404040;border-radius:3px;">
+                </div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Size:</span>
+                <div class="property-input" style="font-size:10px;color:#888;">
+                    ${img.cachedImage ? `${img.cachedImage.naturalWidth}×${img.cachedImage.naturalHeight}px` : 'Loading...'}
+                    <br>
+                    ~${(img.imageData.length / 1024).toFixed(1)}KB in project
+                </div>
+            </div>
+        `;
+    }
+
     renderGridProperties(grid) {
         return `
             <div class="property-row">
@@ -4894,6 +5297,50 @@ class TikZDrawApp {
                 }
             });
         });
+
+        // Special handling for image aspect ratio lock
+        const lockAspect = panel.querySelector('#lockAspect');
+        if (lockAspect) {
+            lockAspect.addEventListener('change', e => {
+                const img = this.selectedObjects[0];
+                if (img instanceof TikZImage) {
+                    this.saveState();
+                    if (e.target.checked) {
+                        img.height = null; // Auto-calculate
+                    } else {
+                        img.height = img.width / img.naturalAspect; // Lock current
+                    }
+                    this.updatePropertiesPanel();
+                    this.render();
+                }
+            });
+        }
+
+        // Update height when width changes (if aspect locked)
+        const widthInput = panel.querySelector('[data-prop="width"]');
+        if (widthInput && this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZImage) {
+            widthInput.addEventListener('input', () => {
+                const img = this.selectedObjects[0];
+                if (img.height === null) {
+                    const heightInput = panel.querySelector('#imageHeight');
+                    if (heightInput) {
+                        const newHeight = parseFloat(widthInput.value) / img.naturalAspect;
+                        heightInput.value = newHeight.toFixed(2);
+                    }
+                }
+            });
+        }
+
+        // Update opacity display
+        const opacitySlider = panel.querySelector('#opacitySlider');
+        if (opacitySlider) {
+            opacitySlider.addEventListener('input', () => {
+                const opacityValue = panel.querySelector('#opacityValue');
+                if (opacityValue) {
+                    opacityValue.textContent = Math.round(parseFloat(opacitySlider.value) * 100) + '%';
+                }
+            });
+        }
     }
 
     async updateLabelPreview() {
@@ -5224,6 +5671,7 @@ class TikZDrawApp {
         if (obj instanceof TikZPath) return '⟋';
         if (obj instanceof TikZBezier) return '∿';
         if (obj instanceof TikZLabel) return 'A';
+        if (obj instanceof TikZImage) return '🖼';
         if (obj instanceof TikZGrid) return '#';
         return '?';
     }
@@ -5248,6 +5696,7 @@ class TikZDrawApp {
         if (obj instanceof TikZPath) return `${obj.name} (${obj.points.length} points)`;
         if (obj instanceof TikZBezier) return `${obj.name} (${obj.from} ~ ${obj.to})`;
         if (obj instanceof TikZLabel) return `${obj.name} ("${obj.text}" at ${obj.at})`;
+        if (obj instanceof TikZImage) return `${obj.name} (${obj.filename} at ${obj.at})`;
         if (obj instanceof TikZGrid) return `${obj.name} (${obj.xMin},${obj.yMin})-(${obj.xMax},${obj.yMax})`;
         return obj.id;
     }
@@ -5756,6 +6205,17 @@ class TikZDrawApp {
             lines.push('');
         }
 
+        // Check if any objects use images
+        const usesImages = this.objects.some(o => o instanceof TikZImage);
+
+        // Add note about graphicx package if needed
+        if (usesImages) {
+            lines.push('% NOTE: This drawing uses images. Add the following to your preamble:');
+            lines.push('% \\usepackage{graphicx}');
+            lines.push('% NOTE: Image files must be in the same directory or provide full path');
+            lines.push('');
+        }
+
         // Preamble
         lines.push('\\begin{tikzpicture}[scale=1]');
 
@@ -5962,6 +6422,19 @@ class TikZDrawApp {
             data.color = obj.color;
             data.expanded = obj.expanded;
             data.name = obj.name;
+        } else if (obj instanceof TikZImage) {
+            data.at = obj.at;
+            data.imageData = obj.imageData;
+            data.filename = obj.filename;
+            data.mimeType = obj.mimeType;
+            data.width = obj.width;
+            data.height = obj.height;
+            data.opacity = obj.opacity;
+            data.anchor = obj.anchor;
+            data.rotation = obj.rotation;
+            data.naturalAspect = obj.naturalAspect;
+            data.expanded = obj.expanded;
+            data.name = obj.name;
         } else if (obj instanceof TikZGrid) {
             data.xMin = obj.xMin;
             data.yMin = obj.yMin;
@@ -6161,6 +6634,17 @@ class TikZDrawApp {
                     obj.fontSize = data.fontSize;
                     obj.color = data.color;
                     obj.name = data.name || obj.name;
+                    break;
+                case 'TikZImage':
+                    obj = new TikZImage(data.at, data.imageData, data.filename, data.mimeType);
+                    obj.width = data.width;
+                    obj.height = data.height;
+                    obj.opacity = data.opacity;
+                    obj.anchor = data.anchor || 'center';
+                    obj.rotation = data.rotation || 0;
+                    obj.naturalAspect = data.naturalAspect || 1.0;
+                    obj.name = data.name || obj.name;
+                    // cachedImage will be loaded lazily on first render
                     break;
                 case 'TikZGrid':
                     obj = new TikZGrid(data.xMin, data.yMin, data.xMax, data.yMax);
