@@ -107,6 +107,9 @@
             flex-direction: column;
             gap: 4px;
             flex-shrink: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: none;
         }
         
         .tool {
@@ -5578,6 +5581,14 @@ class TikZDrawApp {
     }
     
     closeNodeEditor() {
+        if (this.editingNode.text.length == 0) {
+            const idx = this.editingNodeParent.nodes.indexOf(this.editingNode);
+            if (idx >= 0) {
+                this.editingNodeParent.nodes.splice(idx, 1);
+            }
+            this.updateObjectList();
+        }
+
         document.getElementById('nodeEditorModal').classList.remove('visible');
         this.editingNode = null;
         this.editingNodeParent = null;
@@ -5814,7 +5825,7 @@ class TikZDrawApp {
                                 this.openNodeEditor(obj, nodeToEdit);
                             } else {
                                 // Create and open editor for new label
-                                const node = new TikZEmbeddedNode('label', 0.5, 'above');
+                                const node = new TikZEmbeddedNode('', 0.5, 'above');
                                 // For paths, store which segment this label is on
                                 if (obj.type === 'path' && segmentIndex >= 0) {
                                     node.segmentIndex = segmentIndex;
