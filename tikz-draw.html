@@ -674,6 +674,9 @@
                     Objects
                     <span style="font-weight:normal;text-transform:none;font-size:10px;color:#eee;">drag to reorder</span>
                 </div>
+                <div class="panel-header">
+                  <label style="margin-left:10px;font-weight:normal;text-transform:none"><input type="checkbox" id="hideInvisiblePoints" name="hideInvisiblePoints" value="1" onclick="javascript:app.updateObjectList();"/> Hide Invisible Points</label>
+                </div>
                 <div class="object-list" id="objectList"></div>
             </div>
         </div>
@@ -779,13 +782,13 @@
                 <div class="property-row">
                     <span class="property-label">Text:</span>
                     <div class="property-input">
-                        <textarea id="nodeText" rows="2">label</textarea>
+                        <textarea id="nodeText" rows="2" placeholder="$label$"></textarea>
                     </div>
                 </div>
                 <div class="property-row">
                     <span class="property-label">Preview:</span>
                     <div class="property-input">
-                        <div class="latex-preview" id="nodeLatexPreview">label</div>
+                        <div class="latex-preview" id="nodeLatexPreview" placeholder="label"></div>
                     </div>
                 </div>
                 <div class="property-row">
@@ -1416,6 +1419,10 @@ class TikZDrawApp {
         this.ctx = this.canvas.getContext('2d');
         this.container = document.getElementById('canvasContainer');
         
+        // Key state
+        this.ctrlKey = false;
+        this.shiftKey = false;
+
         // View state
         this.viewX = 0;
         this.viewY = 0;
@@ -1762,6 +1769,7 @@ class TikZDrawApp {
         
         // Keyboard
         document.addEventListener('keydown', e => this.onKeyDown(e));
+        document.addEventListener('keyup', e => this.onKeyUp(e));
         
         // Object list drag and drop
         this.setupDragDrop();
@@ -2459,6 +2467,14 @@ class TikZDrawApp {
                 }
             }
 
+            // Update arc rotation properties
+            if (this.rotateArcs && this.rotateArcs.length > 0) {
+                for (const item of this.rotateArcs) {
+                    item.arc.startAngle = item.originalStartAngle + rotationAngle;
+                    item.arc.endAngle = item.originalEndAngle + rotationAngle;
+                }
+            }
+
             // Update image rotation properties
             if (this.rotateImages && this.rotateImages.length > 0) {
                 for (const item of this.rotateImages) {
@@ -2532,6 +2548,7 @@ class TikZDrawApp {
             this.rotateCoords = [];
             this.rotateOriginalPositions = [];
             this.rotateRectangles = [];
+            this.rotateArcs = [];
             this.rotateImages = [];
             // Reset cursor back to rotate tool cursor
             if (this.currentTool === 'rotate') {
@@ -2573,6 +2590,10 @@ class TikZDrawApp {
             activeEl.isContentEditable
         );
         
+        // Save ctrl/shift state
+        this.ctrlKey = e.ctrlKey;
+        this.shiftKey = e.shiftKey;
+
         // Tool shortcuts - only when not in input
         const toolKeys = {
             'v': 'select', 'm': 'move', 'o': 'rotate', 'p': 'point', 'l': 'line', 'a': 'vector',
@@ -2706,6 +2727,12 @@ class TikZDrawApp {
         }
     }
     
+    onKeyUp(e) {
+        // Save ctrl/shift state
+        this.ctrlKey = e.ctrlKey;
+        this.shiftKey = e.shiftKey;
+    }
+    
     // ========================================================================
     // Tool Handling
     // ========================================================================
@@ -2785,27 +2812,6 @@ class TikZDrawApp {
             this.updateObjectList();
             this.updateUndoRedoButtons();
             this.render();
-
-            // Auto-open label editor for segments/vectors only (not paths) - only if single object selected
-            // For paths, user must click on specific segment in object list
-            // Use type property instead of instanceof
-            if (this.selectedObjects.length === 1 && (obj.type === 'line' || obj.type === 'vec')) {
-                // Use setTimeout to ensure UI updates complete first
-                setTimeout(() => {
-                    if (obj.nodes && obj.nodes.length > 0) {
-                        // Open editor for first existing label
-                        this.openNodeEditor(obj, obj.nodes[0]);
-                    } else {
-                        // Create and open editor for new label
-                        const node = new TikZEmbeddedNode('label', 0.5, 'above');
-                        if (!obj.nodes) obj.nodes = [];
-                        obj.nodes.push(node);
-                        this.updateObjectList();
-                        this.openNodeEditor(obj, node);
-                    }
-                }, 50);
-                return;
-            }
         } else {
             // Clicked on empty space - start box selection (actual selection happens on mouseup)
             this.boxSelectStart = { x: world.x, y: world.y };
@@ -2879,9 +2885,19 @@ class TikZDrawApp {
                 this.showToast('Skipping rectangles - they cannot be rotated', 'error');
             }
 
+            // Arcs rotate around their center point by updating their rotation property as well as their coordinate.
+            const arcs = objectsToRotate.filter(obj => obj instanceof TikZArc);
+            const coordBasedObjects = objectsToRotate;
+
+            // Store arcs and their original rotations
+            this.rotateArcs = arcs.map(arc => ({
+                arc: arc,
+                originalStartAngle: arc.startAngle || 0,
+                originalEndAngle: arc.endAngle || 0
+            }));
+
             // Images rotate around their anchor point by updating their rotation property as well as their coordinate.
             const images = objectsToRotate.filter(obj => obj instanceof TikZImage);
-            const coordBasedObjects = objectsToRotate;
 
             // Store images and their original rotations
             this.rotateImages = images.map(img => ({
@@ -4334,7 +4350,7 @@ class TikZDrawApp {
         while (rotationAngle < -180) rotationAngle += 360;
 
         // Apply snapping for display (matches actual rotation)
-        const displayAngle = this.snapAngle(rotationAngle, (event.ctrlKey ? 1 : 5));
+        const displayAngle = this.snapAngle(rotationAngle, (this.ctrlKey ? 1 : 5));
 
         // Draw center point
         ctx.fillStyle = '#e5c07b';
@@ -5614,6 +5630,7 @@ class TikZDrawApp {
     
     updateObjectList() {
         const list = document.getElementById('objectList');
+        const hideInvisiblePoints = document.getElementById('hideInvisiblePoints').checked;
         let html = '';
         let lastObjectSelected = null;
         
@@ -5623,13 +5640,20 @@ class TikZDrawApp {
             const name = this.getObjectDisplayName(obj);
             const hasSubObjects = typeof obj.getSubObjects === 'function' && obj.getSubObjects().length > 0;
             
-            html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}" 
-                         data-id="${obj.id}" draggable="true">
-                <span class="drag-handle">⠿</span>
-                <span class="expand-btn" onclick="event.stopPropagation(); app.toggleExpand('${obj.id}')">${hasSubObjects ? (obj.expanded ? '▼' : '◢') : ''}</span>
-                <span class="obj-icon">${icon}</span>
-                <span class="obj-name">${name}</span>
-            </div>`;
+            let hide = false;
+            if (hideInvisiblePoints && obj instanceof TikZCoordinate && !obj.showPoint && obj.label.length == 0) {
+                hide = true;
+            }
+
+            if (!hide) {
+                html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}" 
+                             data-id="${obj.id}" draggable="true">
+                    <span class="drag-handle">⠿</span>
+                    <span class="expand-btn" onclick="event.stopPropagation(); app.toggleExpand('${obj.id}')">${hasSubObjects ? (obj.expanded ? '▼' : '◢') : ''}</span>
+                    <span class="obj-icon">${icon}</span>
+                    <span class="obj-name">${name}</span>
+                </div>`;
+            }
             
             if (isSelected) {
                 lastObjectSelected = obj;
@@ -5656,7 +5680,9 @@ class TikZDrawApp {
         // make sure selected item(s) are in view
         if (lastObjectSelected) {
             const element = document.querySelector('[data-id="' + lastObjectSelected.id + '"]');
-            element.scrollIntoView();
+            if (element) {
+                element.scrollIntoView();
+            }
         }
     }
     
@@ -5846,26 +5872,6 @@ class TikZDrawApp {
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
                 this.render();
-
-                // If it's a segment/vector, auto-open label editor (but not on Ctrl+click)
-                // For paths, user must click on specific segment subobject
-                // Use type property instead of instanceof
-                if ((obj.type === 'line' || obj.type === 'vec') && !e.ctrlKey && !e.metaKey) {
-                    // Use setTimeout to ensure modal opens after UI updates
-                    setTimeout(() => {
-                        if (obj.nodes && obj.nodes.length > 0) {
-                            // Open editor for first existing label
-                            this.openNodeEditor(obj, obj.nodes[0]);
-                        } else {
-                            // Create and open editor for new label
-                            const node = new TikZEmbeddedNode('label', 0.5, 'above');
-                            if (!obj.nodes) obj.nodes = [];
-                            obj.nodes.push(node);
-                            this.updateObjectList();
-                            this.openNodeEditor(obj, node);
-                        }
-                    }, 50);
-                }
             }
         });
 
@@ -5946,29 +5952,29 @@ class TikZDrawApp {
         
         // Area mouse handling
         let draggingArea = false;
-        area.addEventListener('pointerdown', e => {
+        area.addEventListener('mousedown', e => {
             draggingArea = true;
             this.handleAreaClick(e);
         });
         
-        document.addEventListener('pointermove', e => {
+        document.addEventListener('mousemove', e => {
             if (draggingArea) this.handleAreaClick(e);
         });
         
-        document.addEventListener('pointerup', () => draggingArea = false);
+        document.addEventListener('mouseup', () => draggingArea = false);
         
         // Hue slider
         let draggingHue = false;
-        hueSlider.addEventListener('pointerdown', e => {
+        hueSlider.addEventListener('mousedown', e => {
             draggingHue = true;
             this.handleHueClick(e);
         });
         
-        document.addEventListener('pointermove', e => {
+        document.addEventListener('mousemove', e => {
             if (draggingHue) this.handleHueClick(e);
         });
         
-        document.addEventListener('pointerup', () => draggingHue = false);
+        document.addEventListener('mouseup', () => draggingHue = false);
         
         // RGB inputs
         ['colorR', 'colorG', 'colorB'].forEach(id => {
