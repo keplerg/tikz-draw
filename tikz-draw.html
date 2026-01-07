@@ -4103,8 +4103,6 @@ class TikZDrawApp {
 
         if (anchor.includes('above')) offsetY = -offset;
         if (anchor.includes('below')) offsetY = offset;
-        if (anchor.includes('left')) offsetX = -offset;
-        if (anchor.includes('right')) offsetX = offset;
 
         // Try to get cached LaTeX render
         const cacheKey = `${text}::${color}::${fontSize}`;
@@ -4112,7 +4110,7 @@ class TikZDrawApp {
 
         if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
             // Draw rendered LaTeX image
-            const drawX = pos.x + offsetX - cached.width / 2;
+            const drawX = pos.x + (anchor.includes('right') ? 5 : (anchor.includes('left') ? (- cached.width - 5) : (- cached.width / 2)));
             const drawY = pos.y + offsetY - cached.height / 2;
 
             // Draw contour stroke if present
@@ -6292,16 +6290,6 @@ class TikZDrawApp {
     // ========================================================================
     
     saveProject() {
-        // Prompt for filename
-        let filename = prompt('Enter filename:', 'tikz-drawing');
-        if (!filename) return; // User cancelled
-
-        // Ensure .json extension
-        filename = filename.trim();
-        if (!filename.endsWith('.json')) {
-            filename += '.json';
-        }
-
         const data = {
             version: '1.0',
             viewX: this.viewX,
@@ -6313,14 +6301,56 @@ class TikZDrawApp {
 
         const json = JSON.stringify(data, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+        if (!this.saveFile(blob)) {
+            // Prompt for filename
+            let filename = prompt('Enter filename:', 'tikz-drawing');
+            if (!filename) return; // User cancelled
+    
+            // Ensure .json extension
+            filename = filename.trim();
+            if (!filename.endsWith('.json')) {
+                filename += '.json';
+            }
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
     }
     
+    async saveFile(blob) {
+      try {
+        // Define picker options (suggested name, file types, etc.)
+        const pickerOptions = {
+          suggestedName: 'tikz-project.json',
+          types: [{
+            description: 'Tikz-draw file',
+            accept: {
+              'application/json': ['.json'],
+            },
+          }],
+        };
+
+        // Open the file picker and get a file handle
+        const fileHandle = await window.showSaveFilePicker(pickerOptions);
+
+        // Create a writable stream to the file
+        const writableFileStream = await fileHandle.createWritable();
+
+        // Write the content to the file
+        await writableFileStream.write(blob);
+
+        // Close the file
+        await writableFileStream.close();
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+            
     serializeObject(obj) {
         const data = { type: obj.constructor.name, id: obj.id };
         
