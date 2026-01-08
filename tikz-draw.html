@@ -1114,10 +1114,12 @@ class TikZArc extends TikZObject {
 }
 
 class TikZRectangle extends TikZObject {
-    constructor(corner1Coord, corner2Coord) {
+    constructor(xMin, yMin, xMax, yMax) {
         super('rect');
-        this.corner1 = corner1Coord;
-        this.corner2 = corner2Coord;
+        this.xMin = xMin;
+        this.yMin = yMin;
+        this.xMax = xMax;
+        this.yMax = yMax;
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
@@ -1125,7 +1127,6 @@ class TikZRectangle extends TikZObject {
         this.fillOpacity = 1.0;
         this.pattern = 'none';
         this.rotation = 0; // Rotation angle in degrees
-        this.rotationCenter = null; // {x, y} center point for rotation
         this.name = this.id.replace('rect_', 'R');
     }
 
@@ -1135,6 +1136,11 @@ class TikZRectangle extends TikZObject {
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle === 'dashed') opts.push('dashed');
         if (this.lineStyle === 'dotted') opts.push('dotted');
+        if (this.rotation !== 0) {
+            const cx = ((this.xMin + this.xMax) / 2).toFixed(2);
+            const cy = ((this.yMin + this.yMax) / 2).toFixed(2);
+            opts.push(`rotate around=\{${this.rotation.toFixed(1)}:(${cx},${cy})\}`);
+        }
 
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
@@ -1152,7 +1158,7 @@ class TikZRectangle extends TikZObject {
         }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
-        return `  ${cmd}${optStr} (${this.corner1}) rectangle (${this.corner2});`;
+        return `  ${cmd}${optStr} (${this.xMin},${this.yMin}) rectangle (${this.xMax},${this.yMax});`;
     }
 }
 
@@ -1340,7 +1346,7 @@ class TikZImage extends TikZObject {
 
         // Add opacity if not fully opaque
         if (this.opacity < 1.0) {
-            opts.push(`opacity=${Number.parseFloat(this.opacity).toFixed(2)}`);
+            opts.push(`opacity=${Number(this.opacity.toFixed(2))}`);
         }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
@@ -1357,7 +1363,7 @@ class TikZImage extends TikZObject {
             graphicsOpts += `,angle=-${this.rotation.toFixed(1)}`;
         }
 
-            return `  \\node${optStr} at (${this.at}.${this.anchor}) {\\includegraphics[${graphicsOpts}]{${this.filename}}};`;
+        return `  \\node${optStr} at (${this.at}.${this.anchor}) {\\includegraphics[${graphicsOpts}]{${this.filename}}};`;
     }
 
     getBounds() {
@@ -1404,11 +1410,21 @@ class TikZGrid extends TikZObject {
         this.step = 1.0;
         this.color = 'lightgray';
         this.thickness = 'very thin';
+        this.rotation = 0; // Rotation angle in degrees
         this.name = this.id.replace('grid_', 'G');
     }
     
     toTikZ() {
-        return `  \\draw[step=${this.step}, ${this.color}, ${this.thickness}] (${this.xMin}, ${this.yMin}) grid (${this.xMax}, ${this.yMax});`;
+        let opts = [];
+
+        // Add rotation if not zero
+        if (this.rotation !== 0) {
+            const cx = ((this.xMin + this.xMax) / 2).toFixed(2);
+            const cy = ((this.yMin + this.yMax) / 2).toFixed(2);
+            opts.push(`rotate around=\{${this.rotation.toFixed(1)}:(${cx},${cy})\}`);
+        }
+
+        return `  \\draw[step=${this.step}, ${this.color}, ${this.thickness}${opts.join(', ')}] (${this.xMin}, ${this.yMin}) grid (${this.xMax}, ${this.yMax});`;
     }
 }
 
@@ -1480,7 +1496,9 @@ class TikZDrawApp {
         this.rotateCurrentAngle = null; // Current angle from center to mouse
         this.rotateCoords = []; // Coordinates being rotated
         this.rotateOriginalPositions = []; // Original positions of coordinates
+        this.rotateImages = []; // Rectangles being rotated with original deltas
         this.rotateRectangles = []; // Rectangles being rotated with original deltas
+        this.rotateGrids = []; // Rectangles being rotated with original deltas
 
         // Clipboard for copy/paste
         this.clipboard = null;
@@ -1943,18 +1961,9 @@ class TikZDrawApp {
                 }
             }
             else if (obj instanceof TikZRectangle) {
-                const c1 = this.getCoordByName(obj.corner1);
-                const c2 = this.getCoordByName(obj.corner2);
-                if (c1 && c2) {
-                    const minX = Math.min(c1.x, c2.x);
-                    const maxX = Math.max(c1.x, c2.x);
-                    const minY = Math.min(c1.y, c2.y);
-                    const maxY = Math.max(c1.y, c2.y);
-
-                    // Click anywhere inside the rectangle
-                    if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) {
-                        return obj;
-                    }
+                // Click anywhere inside the rectangle
+                if (wx >= obj.xMin && wx <= obj.xMax && wy >= obj.yMin && wy <= obj.yMax) {
+                    return obj;
                 }
             }
             else if (obj instanceof TikZBezier) {
@@ -2090,6 +2099,11 @@ class TikZDrawApp {
         for (const obj of objects) {
             if (obj instanceof TikZCoordinate) {
                 coordSet.add(obj);
+            } else if (obj instanceof TikZRectangle || obj instanceof TikZGrid) {
+                const tempObj = new Object();
+                tempObj.x = (obj.xMin + obj.xMax) / 2;
+                tempObj.y = (obj.yMin + obj.yMax) / 2;
+                coordSet.add(tempObj);
             } else {
                 const coordNames = this.getObjectCoordinates(obj);
                 for (const coordName of coordNames) {
@@ -2125,6 +2139,34 @@ class TikZDrawApp {
         };
     }
 
+    rotatePoints(p1x, p1y, p2x, p2y, cx, cy, angleRad) {
+        // Rotate the center of rectangle/grid around global center (cx, cy)
+        // The rectangle/grid itself will also rotate around its own center
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+
+        // Calculate rectangle/grid center
+        const rectCenterX = (p1x + p2x) / 2.0;
+        const rectCenterY = (p1y + p2y) / 2.0;
+
+        // Calculate half dimensions (stay constant)
+        const halfWidth = (p2x - p1x) / 2.0;
+        const halfHeight = (p2y - p1y) / 2.0;
+
+        // Rotate the rectangle/grid center around the global rotation center
+        const dx = rectCenterX - cx;
+        const dy = rectCenterY - cy;
+        const newCenterX = cx + dx * cos - dy * sin;
+        const newCenterY = cy + dx * sin + dy * cos;
+
+        return {
+            xMin: Number((newCenterX - halfWidth).toFixed(2)),
+            yMin: Number((newCenterY - halfHeight).toFixed(2)),
+            xMax: Number((newCenterX + halfWidth).toFixed(2)),
+            yMax: Number((newCenterY + halfHeight).toFixed(2))
+        };
+    }
+
     snapAngle(angle, snapInterval = 5) {
         // Snap angle to nearest snapInterval degrees
         return Math.round(angle / snapInterval) * snapInterval;
@@ -2151,8 +2193,6 @@ class TikZDrawApp {
             coordNames.push(obj.from, obj.to);
         } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
             coordNames.push(obj.center);
-        } else if (obj instanceof TikZRectangle) {
-            coordNames.push(obj.corner1, obj.corner2);
         } else if (obj instanceof TikZPath) {
             coordNames.push(...obj.points);
         } else if (obj instanceof TikZBezier) {
@@ -2220,9 +2260,6 @@ class TikZDrawApp {
             if (obj.to === oldName) obj.to = newName;
         } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
             if (obj.center === oldName) obj.center = newName;
-        } else if (obj instanceof TikZRectangle) {
-            if (obj.corner1 === oldName) obj.corner1 = newName;
-            if (obj.corner2 === oldName) obj.corner2 = newName;
         } else if (obj instanceof TikZPath) {
             obj.points = obj.points.map(p => p === oldName ? newName : p);
         } else if (obj instanceof TikZBezier) {
@@ -2422,16 +2459,33 @@ class TikZDrawApp {
         }
 
         // Handle moving object
-        if (this.isMoving && this.moveStart && this.moveCoords.length > 0) {
+        if (this.isMoving && this.moveStart) {
             this.canvas.style.cursor = 'grabbing';
 
-            const dx = snapped.x - this.moveStart.x;
-            const dy = snapped.y - this.moveStart.y;
+            let dx = snapped.x - this.moveStart.x;
+            let dy = snapped.y - this.moveStart.y;
 
             // Apply offset to all coordinates
             for (const coord of this.moveCoords) {
                 coord.x = coord.x + dx - (this.lastMoveDelta?.dx || 0);
                 coord.y = coord.y + dy - (this.lastMoveDelta?.dy || 0);
+            }
+
+            // handle Grids and rectangles separately
+            if (!this.moveObject) {
+                for (const obj of this.selectedObjects) {
+                    if (obj instanceof TikZGrid || obj instanceof TikZRectangle) {
+                        obj.xMin = Number((obj.xMin + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                        obj.yMin = Number((obj.yMin + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
+                        obj.xMax = Number((obj.xMax + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                        obj.yMax = Number((obj.yMax + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
+                    }
+                }
+            } else if (this.moveObject instanceof TikZGrid || this.moveObject instanceof TikZRectangle) {
+                this.moveObject.xMin = Number((this.moveObject.xMin + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                this.moveObject.yMin = Number((this.moveObject.yMin + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
+                this.moveObject.xMax = Number((this.moveObject.xMax + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                this.moveObject.yMax = Number((this.moveObject.yMax + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
             }
 
             this.lastMoveDelta = { dx, dy };
@@ -2482,6 +2536,42 @@ class TikZDrawApp {
             if (this.rotateImages && this.rotateImages.length > 0) {
                 for (const item of this.rotateImages) {
                     item.image.rotation = item.originalRotation - rotationAngle;
+                }
+            }
+
+            // Update rectangle rotation properties
+            if (this.rotateRectangles && this.rotateRectangles.length > 0) {
+                for (const item of this.rotateRectangles) {
+                    item.rect.rotation = item.originalRotation + rotationAngle;
+                    // Use ORIGINAL bounds, not current bounds, to prevent compound rotation
+                    const rotated = this.rotatePoints(
+                        item.originalXMin, item.originalYMin,
+                        item.originalXMax, item.originalYMax,
+                        this.rotateCenter.x, this.rotateCenter.y,
+                        rotationAngle * Math.PI / 180
+                    );
+                    item.rect.xMin = rotated.xMin;
+                    item.rect.yMin = rotated.yMin;
+                    item.rect.xMax = rotated.xMax;
+                    item.rect.yMax = rotated.yMax;
+                }
+            }
+
+            // Update grid rotation properties
+            if (this.rotateGrids && this.rotateGrids.length > 0) {
+                for (const item of this.rotateGrids) {
+                    item.grid.rotation = item.originalRotation + rotationAngle;
+                    // Use ORIGINAL bounds, not current bounds, to prevent compound rotation
+                    const rotated = this.rotatePoints(
+                        item.originalXMin, item.originalYMin,
+                        item.originalXMax, item.originalYMax,
+                        this.rotateCenter.x, this.rotateCenter.y,
+                        rotationAngle * Math.PI / 180
+                    );
+                    item.grid.xMin = rotated.xMin;
+                    item.grid.yMin = rotated.yMin;
+                    item.grid.xMax = rotated.xMax;
+                    item.grid.yMax = rotated.yMax;
                 }
             }
 
@@ -2551,6 +2641,7 @@ class TikZDrawApp {
             this.rotateCoords = [];
             this.rotateOriginalPositions = [];
             this.rotateRectangles = [];
+            this.rotateGrids = [];
             this.rotateArcs = [];
             this.rotateImages = [];
             // Reset cursor back to rotate tool cursor
@@ -2875,19 +2966,6 @@ class TikZDrawApp {
                 objectsToRotate = this.selectedObjects;
             }
 
-            // Filter out rectangles (they can't be rotated - TikZ limitation)
-            const hasRectangles = objectsToRotate.some(obj => obj instanceof TikZRectangle);
-            objectsToRotate = objectsToRotate.filter(obj => !(obj instanceof TikZRectangle));
-
-            if (objectsToRotate.length === 0) {
-                this.showToast('Rectangles cannot be rotated (TikZ limitation). Convert to path first.', 'error');
-                return;
-            }
-
-            if (hasRectangles) {
-                this.showToast('Skipping rectangles - they cannot be rotated', 'error');
-            }
-
             // Arcs rotate around their center point by updating their rotation property as well as their coordinate.
             const arcs = objectsToRotate.filter(obj => obj instanceof TikZArc);
             const coordBasedObjects = objectsToRotate;
@@ -2906,6 +2984,32 @@ class TikZDrawApp {
             this.rotateImages = images.map(img => ({
                 image: img,
                 originalRotation: img.rotation || 0
+            }));
+
+            // Rectangles rotate around their center point by calculating it from corner points.
+            const rectangles = objectsToRotate.filter(obj => obj instanceof TikZRectangle);
+
+            // Store rectangles and their original rotations and bounds
+            this.rotateRectangles = rectangles.map(rect => ({
+                rect: rect,
+                originalRotation: rect.rotation || 0,
+                originalXMin: rect.xMin,
+                originalYMin: rect.yMin,
+                originalXMax: rect.xMax,
+                originalYMax: rect.yMax
+            }));
+
+            // Grids rotate around their center point by calculating it from corner points.
+            const grids = objectsToRotate.filter(obj => obj instanceof TikZGrid);
+
+            // Store grids and their original rotations and bounds
+            this.rotateGrids = grids.map(grid => ({
+                grid: grid,
+                originalRotation: grid.rotation || 0,
+                originalXMin: grid.xMin,
+                originalYMin: grid.yMin,
+                originalXMax: grid.xMax,
+                originalYMax: grid.yMax
             }));
 
             // Clone shared coordinates before rotating (only for coordinate-based objects)
@@ -3108,16 +3212,16 @@ class TikZDrawApp {
     }
     
     handleRectClick(snapped) {
-        let coord = this.findCoordNear(snapped.x, snapped.y);
-        if (!coord) {
-            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(coord);
-        }
-        
-        this.tempPoints.push(coord.name);
-        
-        if (this.tempPoints.length === 2) {
-            const rect = new TikZRectangle(this.tempPoints[0], this.tempPoints[1]);
+        if (this.tempPoints.length === 0) {
+            this.tempPoints.push({ x: snapped.x, y: snapped.y });
+        } else {
+            const p1 = this.tempPoints[0];
+            const rect = new TikZRectangle(
+                Math.min(p1.x, snapped.x),
+                Math.min(p1.y, snapped.y),
+                Math.max(p1.x, snapped.x),
+                Math.max(p1.y, snapped.y)
+            );
             this.addObject(rect);
             this.selectedObjects = [rect];
             this.tempPoints = [];
@@ -3179,7 +3283,7 @@ class TikZDrawApp {
         // Validate file size (warn if > 5MB)
         if (file.size > 5 * 1024 * 1024) {
             const proceed = confirm(
-                `This image is ${Number.parseFloat((file.size / 1024 / 1024)).toFixed(1)}MB. ` +
+                `This image is ${Number((file.size / 1024 / 1024).toFixed(1))}MB. ` +
                 `Large images will increase project file size. Continue?`
             );
             if (!proceed) return;
@@ -3853,24 +3957,43 @@ class TikZDrawApp {
     }
     
     drawRectangle(rect) {
-        const c1 = this.getCoordByName(rect.corner1);
-        const c2 = this.getCoordByName(rect.corner2);
-        if (!c1 || !c2) return;
-
         const ctx = this.ctx;
-        const p1 = this.worldToScreen(c1.x, c1.y);
-        const p2 = this.worldToScreen(c2.x, c2.y);
+        const p1 = this.worldToScreen(rect.xMin, rect.yMin);
+        const p2 = this.worldToScreen(rect.xMax, rect.yMax);
 
         const x = Math.min(p1.x, p2.x);
         const y = Math.min(p1.y, p2.y);
         const w = Math.abs(p2.x - p1.x);
         const h = Math.abs(p2.y - p1.y);
 
+        // Calculate center in screen coordinates
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+
+        ctx.save();
+
+        // Apply rotation if needed
+        if (rect.rotation && rect.rotation !== 0) {
+            // Rotate around the rectangle's center
+            ctx.translate(cx, cy);
+            ctx.rotate(-(rect.rotation * Math.PI) / 180);
+            ctx.translate(-cx, -cy);
+        }
+
         if (rect.fill !== 'none') {
             // Use pattern if specified, otherwise use solid fill
             if (rect.pattern && rect.pattern !== 'none') {
                 const pattern = this.createCanvasPattern(rect.pattern, this.getColor(rect.fill));
                 if (pattern) {
+                    /*
+                    if (rect.rotation && rect.rotation !== 0) {
+                        const rotationAngle = (rect.rotation * Math.PI) / 180;
+                        const patternTransform = new DOMMatrix().rotateSelf(0, 0, rotationAngle);
+        
+                        // Set the transform on the pattern
+                        pattern.setTransform(patternTransform);
+                    }
+                    */
                     ctx.fillStyle = pattern;
                 } else {
                     ctx.fillStyle = this.getColor(rect.fill);
@@ -3878,6 +4001,7 @@ class TikZDrawApp {
             } else {
                 ctx.fillStyle = this.getColor(rect.fill);
             }
+            
             ctx.globalAlpha = rect.fillOpacity;
             ctx.fillRect(x, y, w, h);
             ctx.globalAlpha = 1;
@@ -3889,6 +4013,7 @@ class TikZDrawApp {
 
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
+        ctx.restore();
     }
     
     drawPath(path) {
@@ -4007,12 +4132,31 @@ class TikZDrawApp {
         const ctx = this.ctx;
         const p1 = this.worldToScreen(grid.xMin, grid.yMax);
         const p2 = this.worldToScreen(grid.xMax, grid.yMin);
-        
+
+        const x = Math.min(p1.x, p2.x);
+        const y = Math.min(p1.y, p2.y);
+        const w = Math.abs(p2.x - p1.x);
+        const h = Math.abs(p2.y - p1.y);
+
+        // Calculate center in screen coordinates
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+
+        ctx.save();
+
+        // Apply rotation if needed
+        if (grid.rotation && grid.rotation !== 0) {
+            // Rotate around the grid's center
+            ctx.translate(cx, cy);
+            ctx.rotate(-(grid.rotation * Math.PI) / 180);
+            ctx.translate(-cx, -cy);
+        }
+
         ctx.strokeStyle = this.getColor(grid.color);
         ctx.lineWidth = this.getThickness(grid.thickness);
-        
+
         const stepScreen = grid.step * this.zoom;
-        
+
         ctx.beginPath();
         for (let x = grid.xMin; x <= grid.xMax; x += grid.step) {
             const sx = this.worldToScreen(x, 0).x;
@@ -4025,6 +4169,8 @@ class TikZDrawApp {
             ctx.lineTo(p2.x, sy);
         }
         ctx.stroke();
+
+        ctx.restore();
     }
 
     drawImage(imgObj) {
@@ -4203,19 +4349,15 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZRectangle) {
-            const c1 = this.getCoordByName(obj.corner1);
-            const c2 = this.getCoordByName(obj.corner2);
-            if (c1 && c2) {
-                const p1 = this.worldToScreen(c1.x, c1.y);
-                const p2 = this.worldToScreen(c2.x, c2.y);
-                const x = Math.min(p1.x, p2.x) - 4;
-                const y = Math.min(p1.y, p2.y) - 4;
-                const w = Math.abs(p2.x - p1.x) + 8;
-                const h = Math.abs(p2.y - p1.y) + 8;
-                ctx.beginPath();
-                ctx.rect(x, y, w, h);
-                ctx.stroke();
-            }
+            const p1 = this.worldToScreen(obj.xMin, obj.yMin);
+            const p2 = this.worldToScreen(obj.xMax, obj.yMax);
+            const x = Math.min(p1.x, p2.x) - 4;
+            const y = Math.min(p1.y, p2.y) - 4;
+            const w = Math.abs(p2.x - p1.x) + 8;
+            const h = Math.abs(p2.y - p1.y) + 8;
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.stroke();
         }
         else if (obj instanceof TikZArc) {
             const center = this.getCoordByName(obj.center);
@@ -4445,13 +4587,8 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZRectangle) {
-            const c1 = this.getCoordByName(obj.corner1);
-            const c2 = this.getCoordByName(obj.corner2);
-            if (c1 && c2) {
-                // Select if either corner is in box
-                return (c1.x >= minX && c1.x <= maxX && c1.y >= minY && c1.y <= maxY) ||
-                       (c2.x >= minX && c2.x <= maxX && c2.y >= minY && c2.y <= maxY);
-            }
+            return (obj.xMin >= minX && obj.xMin <= maxX && obj.yMin >= minY && obj.yMin <= maxY) &&
+                   (obj.xMax >= minX && obj.xMax <= maxX && obj.yMax >= minY && obj.yMax <= maxY);
         }
         else if (obj instanceof TikZPath) {
             // Select if any point is in box
@@ -4489,12 +4626,8 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZGrid) {
-            const from = this.getCoordByName(obj.from);
-            const to = this.getCoordByName(obj.to);
-            if (from && to) {
-                return (from.x >= minX && from.x <= maxX && from.y >= minY && from.y <= maxY) ||
-                       (to.x >= minX && to.x <= maxX && to.y >= minY && to.y <= maxY);
-            }
+            return (obj.xMin >= minX && obj.xMin <= maxX && obj.yMin >= minY && obj.yMin <= maxY) &&
+                   (obj.xMax >= minX && obj.xMax <= maxX && obj.yMax >= minY && obj.yMax <= maxY);
         }
         return false;
     }
@@ -4580,15 +4713,12 @@ class TikZDrawApp {
         }
         else if (this.currentTool === 'rect') {
             if (this.tempPoints.length === 1) {
-                const from = this.getCoordByName(this.tempPoints[0]);
-                if (from) {
-                    const p1 = this.worldToScreen(from.x, from.y);
-                    const p2 = this.worldToScreen(snapped.x, snapped.y);
-                    ctx.strokeRect(
-                        Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
-                        Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)
-                    );
-                }
+                const p1 = this.worldToScreen(this.tempPoints[0].x, this.tempPoints[0].y);
+                const p2 = this.worldToScreen(snapped.x, snapped.y);
+                ctx.strokeRect(
+                    Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
+                    Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)
+                );
             }
         }
         else if (this.currentTool === 'path') {
@@ -5007,12 +5137,18 @@ class TikZDrawApp {
                 <div class="property-input"><input type="text" data-prop="name" value="${rect.name}"></div>
             </div>
             <div class="property-row">
-                <span class="property-label">Corner 1:</span>
-                <div class="property-input">${this.renderCoordSelect(rect.corner1, 'corner1', [rect.corner2])}</div>
+                <span class="property-label">X Range:</span>
+                <div class="property-input coord-inputs">
+                    <input type="number" step="1" data-prop="xMin" value="${rect.xMin}">
+                    <input type="number" step="1" data-prop="xMax" value="${rect.xMax}">
+                </div>
             </div>
             <div class="property-row">
-                <span class="property-label">Corner 2:</span>
-                <div class="property-input">${this.renderCoordSelect(rect.corner2, 'corner2', [rect.corner1])}</div>
+                <span class="property-label">Y Range:</span>
+                <div class="property-input coord-inputs">
+                    <input type="number" step="1" data-prop="yMin" value="${rect.yMin}">
+                    <input type="number" step="1" data-prop="yMax" value="${rect.yMax}">
+                </div>
             </div>
             <div class="property-row">
                 <span class="property-label">Color:</span>
@@ -5439,8 +5575,6 @@ class TikZDrawApp {
                 if (obj.from === oldName) obj.from = newName;
                 if (obj.to === oldName) obj.to = newName;
                 if (obj.center === oldName) obj.center = newName;
-                if (obj.corner1 === oldName) obj.corner1 = newName;
-                if (obj.corner2 === oldName) obj.corner2 = newName;
                 if (obj.control === oldName) obj.control = newName;
                 if (obj.at === oldName) obj.at = newName;
                 if (obj.points) {
@@ -5726,12 +5860,12 @@ class TikZDrawApp {
         if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZCircle) return `${obj.name} (${obj.center}, r=${obj.radius.toFixed(2)})`;
         if (obj instanceof TikZArc) return `${obj.name} (${obj.center}, ${obj.startAngle.toFixed(1)}°-${obj.endAngle.toFixed(1)}°)`;
-        if (obj instanceof TikZRectangle) return `${obj.name} (${obj.corner1} × ${obj.corner2})`;
+        if (obj instanceof TikZRectangle) return `${obj.name} (${obj.xMin},${obj.yMin}) - (${obj.xMax},${obj.yMax})`;
         if (obj instanceof TikZPath) return `${obj.name} (${obj.points.length} points)`;
         if (obj instanceof TikZBezier) return `${obj.name} (${obj.from} ~ ${obj.to})`;
         if (obj instanceof TikZLabel) return `${obj.name} ("${obj.text}" at ${obj.at})`;
         if (obj instanceof TikZImage) return `${obj.name} (${obj.filename} at ${obj.at})`;
-        if (obj instanceof TikZGrid) return `${obj.name} (${obj.xMin},${obj.yMin})-(${obj.xMax},${obj.yMax})`;
+        if (obj instanceof TikZGrid) return `${obj.name} (${obj.xMin},${obj.yMin}) - (${obj.xMax},${obj.yMax})`;
         return obj.id;
     }
     
@@ -6203,6 +6337,7 @@ class TikZDrawApp {
         URL.revokeObjectURL(url);
     }
     
+
     generateTikZ() {
         let lines = [];
 
@@ -6244,23 +6379,20 @@ class TikZDrawApp {
         if (Object.keys(this.customColors).length > 0) lines.push('');
         
         // Separate objects by type for clean output
-        const grids = this.objects.filter(o => o instanceof TikZGrid);
         const coords = this.objects.filter(o => o instanceof TikZCoordinate);
         const visibleCoords = coords.filter(o => o.showPoint);
-        const labeledCoords = coords.filter(o => o.label);
-        const others = this.objects.filter(o => !(o instanceof TikZGrid) || visibleCoords.includes(o) || labeledCoords.includes(o));
-        
-        // Grids first
-        if (grids.length > 0) {
-            lines.push('  % Grid');
-            grids.forEach(g => lines.push(g.toTikZ()));
-            lines.push('');
-        }
+        const labeledCoords = coords.filter(o => (o.label.length > 0));
+        const others = this.objects.filter(o => !(visibleCoords.includes(o) || labeledCoords.includes(o)));
         
         // Coordinates
         if (coords.length > 0) {
             lines.push('  % Coordinates');
-            coords.forEach(c => lines.push(c.toTikZ()));
+            coords.forEach(c => {
+                // Ignore unused invisible coordinates
+                if (c.label.length > 0 || c.showPoint || this.isCoordinateShared(c.name, c)) {
+                    lines.push(c.toTikZ());
+                }
+            });
             lines.push('');
         }
         
@@ -6419,8 +6551,10 @@ class TikZDrawApp {
             data.expanded = obj.expanded;
             data.name = obj.name;
         } else if (obj instanceof TikZRectangle) {
-            data.corner1 = obj.corner1;
-            data.corner2 = obj.corner2;
+            data.xMin = obj.xMin;
+            data.yMin = obj.yMin;
+            data.xMax = obj.xMax;
+            data.yMax = obj.yMax;
             data.color = obj.color;
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
@@ -6635,7 +6769,19 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZRectangle':
-                    obj = new TikZRectangle(data.corner1, data.corner2);
+                    // convert old style coordinates to new point values
+                    if (data.corner1 && data.corner2) {
+                        const p1 = this.getCoordByName(data.corner1);
+                        const p2 = this.getCoordByName(data.corner2);
+                        if (p1 && p2) {
+                            obj = new TikZRectangle(Math.min(p1.x,p2.x), Math.min(p1.y,p2.y), Math.max(p1.x,p2.x), Math.max(p1.y,p2.y));
+                        } else {
+                            console.log('Cannot convert old rectangle to new format');
+                            return null;
+                        }
+                    } else {
+                        obj = new TikZRectangle(data.xMin, data.yMin, data.xMax, data.yMax);
+                    }
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
