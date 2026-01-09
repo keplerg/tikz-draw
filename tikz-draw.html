@@ -1421,7 +1421,7 @@ class TikZGrid extends TikZObject {
         if (this.rotation !== 0) {
             const cx = ((this.xMin + this.xMax) / 2).toFixed(2);
             const cy = ((this.yMin + this.yMax) / 2).toFixed(2);
-            opts.push(`rotate around=\{${this.rotation.toFixed(1)}:(${cx},${cy})\}`);
+            opts.push(`, rotate around=\{${this.rotation.toFixed(1)}:(${cx},${cy})\}`);
         }
 
         return `  \\draw[step=${this.step}, ${this.color}, ${this.thickness}${opts.join(', ')}] (${this.xMin}, ${this.yMin}) grid (${this.xMax}, ${this.yMax});`;
@@ -1866,20 +1866,44 @@ class TikZDrawApp {
 
         const idx = this.objects.indexOf(obj);
         if (idx >= 0) {
+            // Find coordinates used by this object
+            const coordsUsedByObject = this.getObjectCoordinates(obj);
+
+            // Remove the object
             this.objects.splice(idx, 1);
+
             // Remove from selection if it was selected
             const selIdx = this.selectedObjects.indexOf(obj);
             if (selIdx >= 0) {
                 this.selectedObjects.splice(selIdx, 1);
                 this.updatePropertiesPanel();
             }
+
+            // Delete coordinates that are now orphaned (only used by the deleted object)
+            for (const coordName of coordsUsedByObject) {
+                if (!this.isCoordinateShared(coordName, obj)) {
+                    const coord = this.getCoordByName(coordName);
+                    if (coord) {
+                        const coordIdx = this.objects.indexOf(coord);
+                        if (coordIdx >= 0) {
+                            this.objects.splice(coordIdx, 1);
+                            // Remove from selection if it was selected
+                            const coordSelIdx = this.selectedObjects.indexOf(coord);
+                            if (coordSelIdx >= 0) {
+                                this.selectedObjects.splice(coordSelIdx, 1);
+                            }
+                        }
+                    }
+                }
+            }
+
             this.updateObjectList();
             this.updateObjectCount();
             this.updateUndoRedoButtons();
             this.render();
         }
     }
-    
+
     getCoordByName(name) {
         for (const obj of this.objects) {
             if (obj instanceof TikZCoordinate && obj.name === name) {
@@ -2276,6 +2300,13 @@ class TikZDrawApp {
     prepareObjectForMove(obj) {
         // Prepare an object for independent movement by cloning shared coordinates
         // Returns array of coordinate objects that will be moved
+
+        // TikZRectangle and TikZGrid don't use coordinate references, return empty array
+        // They are handled specially in the move handler
+        if (obj instanceof TikZRectangle || obj instanceof TikZGrid) {
+            return [];
+        }
+
         const coordNames = this.getObjectCoordinates(obj);
 
         // Remove duplicates to avoid processing same coordinate twice
@@ -2740,6 +2771,13 @@ class TikZDrawApp {
                 if (obj instanceof TikZCoordinate) {
                     // Direct coordinate - add it
                     coordsToNudge.add(obj);
+                } else if (obj instanceof TikZRectangle || obj instanceof TikZGrid) {
+                    // TikZRectangle and TikZGrid store numeric coords, not coordinate references
+                    // Nudge them directly
+                    obj.xMin = Number((obj.xMin + dx).toFixed(2));
+                    obj.xMax = Number((obj.xMax + dx).toFixed(2));
+                    obj.yMin = Number((obj.yMin + dy).toFixed(2));
+                    obj.yMax = Number((obj.yMax + dy).toFixed(2));
                 } else {
                     // Get all coordinates used by this object
                     const coordNames = this.getObjectCoordinates(obj);
@@ -3124,6 +3162,7 @@ class TikZDrawApp {
         this.addObject(coord);
         this.selectedObjects = [coord];
         this.updatePropertiesPanel();
+        this.updateObjectList();
         this.updateUndoRedoButtons();
     }
     
@@ -3141,13 +3180,14 @@ class TikZDrawApp {
         
         if (this.tempPoints.length === 2) {
             // Create line or vector
-            const obj = this.currentTool === 'vector' 
+            const obj = this.currentTool === 'vector'
                 ? new TikZVector(this.tempPoints[0], this.tempPoints[1])
                 : new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
             this.addObject(obj);
             this.selectedObjects = [obj];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
         
@@ -3167,18 +3207,19 @@ class TikZDrawApp {
             // Second click: radius point
             const center = this.tempPoints[0];
             const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
-            
+
             const circle = new TikZCircle(center.name, Math.max(0.1, radius));
             this.addObject(circle);
             this.selectedObjects = [circle];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     handleArcClick(snapped) {
         if (this.tempPoints.length === 0) {
             // First click: center
@@ -3199,18 +3240,19 @@ class TikZDrawApp {
             const center = this.tempPoints[0];
             const { radius, startAngle } = this.tempPoints[1];
             const endAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
-            
+
             const arc = new TikZArc(center.name, radius, startAngle, endAngle);
             this.addObject(arc);
             this.selectedObjects = [arc];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     handleRectClick(snapped) {
         if (this.tempPoints.length === 0) {
             this.tempPoints.push({ x: snapped.x, y: snapped.y });
@@ -3226,12 +3268,13 @@ class TikZDrawApp {
             this.selectedObjects = [rect];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     handleLabelClick(snapped) {
         // Attach to nearest coordinate
         const coord = this.findCoordNear(snapped.x, snapped.y, 1.0);
@@ -3241,6 +3284,7 @@ class TikZDrawApp {
             this.addObject(label);
             this.selectedObjects = [label];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         } else {
             // Create coordinate first
@@ -3250,6 +3294,7 @@ class TikZDrawApp {
             this.addObject(label);
             this.selectedObjects = [label];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
         
@@ -3348,6 +3393,7 @@ class TikZDrawApp {
             this.selectedObjects = [path];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         } else {
             this.tempPoints.push(coord.name);
@@ -3360,6 +3406,7 @@ class TikZDrawApp {
                 this.tempPoints = [];
                 this.toolState = null;
                 this.updatePropertiesPanel();
+                this.updateObjectList();
                 this.updateUndoRedoButtons();
             }
         }
@@ -3380,19 +3427,20 @@ class TikZDrawApp {
         }
         
         this.tempPoints.push(coord.name);
-        
+
         if (this.tempPoints.length === 3) {
             const bezier = new TikZBezier(this.tempPoints[0], this.tempPoints[1], this.tempPoints[2]);
             this.addObject(bezier);
             this.selectedObjects = [bezier];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     handleGridClick(snapped) {
         if (this.tempPoints.length === 0) {
             this.tempPoints.push({ x: snapped.x, y: snapped.y });
@@ -3408,12 +3456,13 @@ class TikZDrawApp {
             this.selectedObjects = [grid];
             this.tempPoints = [];
             this.updatePropertiesPanel();
+            this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     updateStatusTip() {
         const tips = {
             'select': 'Click to select, drag to move points • Arrow keys to nudge (Shift for fine control)',
