@@ -4404,9 +4404,25 @@ class TikZDrawApp {
             const y = Math.min(p1.y, p2.y) - 4;
             const w = Math.abs(p2.x - p1.x) + 8;
             const h = Math.abs(p2.y - p1.y) + 8;
+
+            // Calculate center in screen coordinates
+            const cx = x + w / 2;
+            const cy = y + h / 2;
+
+            ctx.save();
+
+            // Apply rotation if needed
+            if (obj.rotation && obj.rotation !== 0) {
+                // Rotate around the rectangle's center
+                ctx.translate(cx, cy);
+                ctx.rotate(-(obj.rotation * Math.PI) / 180);
+                ctx.translate(-cx, -cy);
+            }
+
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.stroke();
+            ctx.restore();
         }
         else if (obj instanceof TikZArc) {
             const center = this.getCoordByName(obj.center);
@@ -4416,7 +4432,7 @@ class TikZDrawApp {
                 const startRad = -obj.startAngle * Math.PI / 180;
                 const endRad = -obj.endAngle * Math.PI / 180;
                 ctx.beginPath();
-                ctx.arc(pos.x, pos.y, radius, startRad, endRad, obj.endAngle < obj.startAngle);
+                ctx.arc(pos.x, pos.y, radius, startRad, endRad, true);
                 ctx.stroke();
             }
         }
@@ -4475,10 +4491,21 @@ class TikZDrawApp {
                 else if (anchor.includes('south')) offsetY = -height;
                 else offsetY = -height / 2;
 
+                ctx.save();
+        
+                // Apply rotation if needed
+                if (obj.rotation && obj.rotation !== 0) {
+                    // Translate to anchor point, rotate, then translate back
+                    ctx.translate(pos.x, pos.y);
+                    ctx.rotate((obj.rotation * Math.PI) / 180); // Convert degrees to radians
+                    ctx.translate(-pos.x, -pos.y);
+                }
+
                 // Draw dashed rectangle around image
                 ctx.beginPath();
                 ctx.rect(pos.x + offsetX - 4, pos.y + offsetY - 4, width + 8, height + 8);
                 ctx.stroke();
+                ctx.restore();
             }
         }
         else if (obj instanceof TikZGrid) {
@@ -4488,9 +4515,25 @@ class TikZDrawApp {
             const y = Math.min(p1.y, p2.y) - 4;
             const w = Math.abs(p2.x - p1.x) + 8;
             const h = Math.abs(p2.y - p1.y) + 8;
+
+            // Calculate center in screen coordinates
+            const cx = x + w / 2;
+            const cy = y + h / 2;
+
+            ctx.save();
+
+            // Apply rotation if needed
+            if (obj.rotation && obj.rotation !== 0) {
+                // Rotate around the rectangle's center
+                ctx.translate(cx, cy);
+                ctx.rotate(-(obj.rotation * Math.PI) / 180);
+                ctx.translate(-cx, -cy);
+            }
+
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.stroke();
+            ctx.restore();
         }
 
         ctx.setLineDash([]);
