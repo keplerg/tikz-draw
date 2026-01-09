@@ -954,7 +954,7 @@ class TikZCoordinate extends TikZObject {
     
     toTikZLabel() {
         if (!this.label) return '';
-        return `  \\node[${this.anchor}] at (${this.name}) {${this.label}};`;
+        return `  \\node[${this.anchor}, ${this.color}] at (${this.name}) {${this.label}};`;
     }
     
     getBounds() {
@@ -6474,7 +6474,7 @@ class TikZDrawApp {
         const coords = this.objects.filter(o => o instanceof TikZCoordinate);
         const visibleCoords = coords.filter(o => o.showPoint);
         const labeledCoords = coords.filter(o => (o.label.length > 0));
-        const others = this.objects.filter(o => !(visibleCoords.includes(o) || labeledCoords.includes(o)));
+        const others = this.objects.filter(o => !coords.includes(o)).concat(visibleCoords).concat(labeledCoords);
         
         // Coordinates
         if (coords.length > 0) {
