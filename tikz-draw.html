@@ -1346,7 +1346,7 @@ class TikZImage extends TikZObject {
 
         // Add opacity if not fully opaque
         if (this.opacity < 1.0) {
-            opts.push(`opacity=${Number(this.opacity.toFixed(2))}`);
+            opts.push(`opacity=${this.opacity}`);
         }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
