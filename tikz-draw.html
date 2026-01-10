@@ -4034,15 +4034,13 @@ class TikZDrawApp {
             if (rect.pattern && rect.pattern !== 'none') {
                 const pattern = this.createCanvasPattern(rect.pattern, this.getColor(rect.fill));
                 if (pattern) {
-                    /*
+                    // don't rotate the pattern with the object
                     if (rect.rotation && rect.rotation !== 0) {
-                        const rotationAngle = (rect.rotation * Math.PI) / 180;
-                        const patternTransform = new DOMMatrix().rotateSelf(0, 0, rotationAngle);
+                        const patternTransform = new DOMMatrix().rotate(rect.rotation);
         
                         // Set the transform on the pattern
                         pattern.setTransform(patternTransform);
                     }
-                    */
                     ctx.fillStyle = pattern;
                 } else {
                     ctx.fillStyle = this.getColor(rect.fill);
@@ -4079,6 +4077,13 @@ class TikZDrawApp {
             if (path.pattern && path.pattern !== 'none') {
                 const pattern = this.createCanvasPattern(path.pattern, this.getColor(path.fill));
                 if (pattern) {
+                    // don't rotate the pattern with the object
+                    if (path.rotation && path.rotation !== 0) {
+                        const patternTransform = new DOMMatrix().rotate(path.rotation);
+        
+                        // Set the transform on the pattern
+                        pattern.setTransform(patternTransform);
+                    }
                     ctx.fillStyle = pattern;
                 } else {
                     ctx.fillStyle = this.getColor(path.fill);
