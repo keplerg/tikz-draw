@@ -5667,6 +5667,12 @@ class TikZDrawApp {
             const oldName = selectedObj.name;
             const newName = value;
             
+            if (this.getCoordByName(value)) {
+                this.showToast('Error: Name already used by another point.', 'error');
+                el.value = oldName;
+                return;
+            }
+
             // Update all references
             this.objects.forEach(obj => {
                 if (obj.from === oldName) obj.from = newName;
