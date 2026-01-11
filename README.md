@@ -6,25 +6,28 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 
 ## Features
 
-- **Visual Drawing Tools**: Point, Line, Vector, Circle, Arc, Rectangle, Path, Bézier Curve, Label, and Grid
+- **Visual Drawing Tools**: Point, Line, Vector, Circle, Arc, Rectangle, Path, Bézier Curve, Label, Image, and Grid
 - **Multi-Select**: Select multiple objects with click-to-toggle or drag-to-select box
 - **Select & Move Tools**: Select objects with inside-click detection, or use Move tool for independent movement
 - **Rotate Tool**: Rotate objects interactively with visual feedback (5° snap) or input exact angles
 - **Multi-Object Operations**: Delete, move, rotate, copy/paste, and nudge multiple objects together
+- **Image Support**: Embed PNG/JPG/GIF images with positioning, scaling, rotation, and opacity controls
 - **LaTeX Support**: Full MathJax rendering for labels and annotations
 - **Pattern Support**: 12 TikZ patterns (horizontal/vertical lines, grid, dots, stars, bricks, etc.) for filled objects
-- **Copy/Paste**: Duplicate single or multiple objects with all properties and relationships preserved (Ctrl+C/Ctrl+V)
+- **Smart Coordinate Management**: Auto-delete unused coordinates when objects are deleted
+- **Copy/Paste**: Duplicate single or multiple objects with all properties and unique IDs preserved (Ctrl+C/Ctrl+V)
 - **Undo/Redo**: Full undo/redo support with 50-state history (Ctrl+Z/Ctrl+Y)
-- **Arrow Key Nudging**: Precise positioning with 0.1 unit (normal) or 0.01 unit (Shift) increments
+- **Arrow Key Nudging**: Precise positioning with 0.1 unit (normal) or 0.01 unit (Shift) increments - works with all object types
 - **Clean TikZ Export**: Generates well-formatted, readable TikZ code
 - **Project Save/Load**: Save your work as JSON and continue later
 - **Customizable Styling**: Colors, line styles, thicknesses, arrow types, patterns, and more
 - **Snap to Grid**: Configurable grid snapping for precise positioning (0.25 units)
 - **Pan & Zoom**: Navigate large diagrams easily
+- **Auto-Scroll to Selection**: Object list automatically scrolls to show selected objects
 
 ## Getting Started
 
-Simply open `tikz-draw.html` in a modern web browser. No installation or server required. [Try the demo](https://tikz-draw.online/tikz-draw.html)
+Simply open `tikz-draw.html` in a modern web browser. No installation or server required. [Try the live demo](https://tikz-draw.online)
 
 ```bash
 # Clone the repository
@@ -51,6 +54,7 @@ start tikz-draw.html      # Windows
 | Arc | R | Draw circular arcs |
 | Rectangle | B | Draw rectangles |
 | Label | T | Add text/LaTeX labels at points |
+| Image | I | Embed images (PNG/JPG/GIF) with scaling and rotation |
 | Path | H | Draw multi-point paths |
 | Curve | Q | Draw Bézier curves |
 | Grid | G | Add a coordinate grid |
@@ -72,7 +76,7 @@ start tikz-draw.html      # Windows
 
 6. **Move & Adjust**: Use the Move tool (M) to reposition objects, or use arrow keys to nudge selected objects for precise positioning. Works with single or multiple objects!
 
-7. **Rotate Objects**: Use the Rotate tool (O) to rotate objects around their center. Click and drag in a circular motion to rotate interactively (snaps to 5°), or hold Ctrl for finer 1° snapping. Note: Rectangles cannot be rotated.
+7. **Rotate Objects**: Use the Rotate tool (O) to rotate objects around their center. Click and drag in a circular motion to rotate interactively (snaps to 5°), or hold Ctrl for finer 1° snapping.
 
 8. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
 
@@ -91,9 +95,22 @@ Select any object to view and edit its properties:
 - **Points**: Position (x, y), name, visibility, color, label for export
 - **Lines/Vectors**: Start/end points, color, thickness, line style, embedded labels
 - **Circles**: Center, radius, stroke color, fill color, opacity, pattern
-- **Rectangles**: Corners, stroke color, fill color, opacity, pattern
+- **Rectangles**: Corners, stroke color, fill color, opacity, pattern, rotation
 - **Paths**: Points, closure, stroke color, fill color, opacity, pattern, line style
-- **Labels**: Position, text content, anchor position, color
+- **Labels**: Position, text content, anchor position, color, font size
+- **Images**: Position, scale, rotation, opacity, filename
+- **Grids**: Corners, color, step size, line thickness, rotation
+
+## Images
+
+Embed images (PNG, JPG, GIF) into your TikZ diagrams:
+
+1. Select the Image tool (I)
+2. Click on the canvas where you want to place the image
+3. Select an image file from your computer
+4. Adjust properties: position, scale, rotation, opacity
+
+Images are embedded as base64 data in the exported TikZ code using the `\includegraphics` command. Images maintain their aspect ratio and can be rotated and scaled independently.
 
 ## Embedded Labels
 
@@ -200,6 +217,7 @@ The exported TikZ code is clean and well-organized:
 | R | Arc tool |
 | B | Rectangle tool |
 | T | Label tool |
+| I | Image tool |
 | H | Path tool |
 | Q | Bézier Curve tool |
 | G | Grid tool |
@@ -295,19 +313,29 @@ Project files preserve all objects, positions, styles, and view settings.
 - **Multi-Object Rotation**: Works with single or multiple selected objects - all rotate together around their collective center
 - **Smart Coordinate Cloning**: Coordinates shared with non-selected objects are automatically cloned before rotation, so non-selected objects remain unaffected
 - **Coordinate Rotation**: Rotations modify the actual coordinate positions (not TikZ transforms), so what you see is what you export
-- **Rectangle Limitation**: Rectangles cannot be rotated due to TikZ limitations (rectangles are always axis-aligned). Convert to a path first if rotation is needed
+- **Rectangle & Grid Rotation**: Rectangles and grids support rotation with `rotate around` TikZ command
+- **Pattern Stability**: When rotating filled objects, patterns maintain their orientation (don't rotate with the object)
 
 ### Copy & Paste
 - **Single or Multiple**: Copy/paste works with any number of selected objects - just select and press Ctrl+C, then Ctrl+V
 - **Relationship Preservation**: When copying multiple objects, their coordinate relationships are preserved in the paste
+- **Unique IDs**: Pasted objects automatically get new unique IDs and coordinate names to avoid conflicts
 - **Quick Duplication**: Select objects, press Ctrl+C to copy, then Ctrl+V multiple times to create multiple copies
 
+### Coordinate Management
+- **Smart Deletion**: When you delete an object, any coordinates that were only used by that object are automatically deleted too
+- **Name Validation**: Point names must be unique - the editor prevents renaming to names already in use
+- **Automatic Cleanup**: Keeps your workspace organized by removing orphaned coordinates
+- **Shared Coordinates**: Coordinates used by multiple objects are preserved when one object is deleted
+
 ### Organization
-- **Naming Points**: Points are automatically named A, B, C... You can rename them in the properties panel
+- **Naming Points**: Points are automatically named A, B, C... You can rename them in the properties panel (duplicate names are rejected)
 - **Reordering**: Drag objects in the Objects list to change their draw order (z-index)
+- **Auto-Scroll**: When you create or select objects, the object list automatically scrolls to show them
 - **Colors**: Use the color picker or enter custom hex colors. TikZ color names (red, blue, etc.) are supported
 - **Patterns**: Combine fill colors with patterns for visual variety. Pattern color matches the fill color
 - **Point Labels**: Points can have both an editor name (shown in gray) and an export label (rendered in LaTeX)
+- **Hide Invisible Points**: Toggle checkbox to hide/show coordinate points that aren't marked as visible
 - **Undo/Redo**: Don't worry about mistakes - every action can be undone with Ctrl+Z
 
 ## Browser Compatibility
