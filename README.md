@@ -145,6 +145,7 @@ TikZ pattern library support for filled objects (Circle, Rectangle, Path):
 - **Stars** - Five-pointed stars
 - **6-Point Stars** - Six-pointed stars
 - **Bricks** - Brick pattern
+- **Checkerboard** - Checkerboard pattern
 
 Patterns use the fill color for pattern color. Export automatically includes `\usetikzlibrary{patterns}` note.
 
