@@ -841,6 +841,15 @@
                         <select id="nodeColor"></select>
                     </div>
                 </div>
+                <div class="property-row">
+                    <span class="property-label">Sloped:</span>
+                    <div class="property-input">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="nodeSloped">
+                            <span style="font-size:12px;color:#888;">Rotate&nbsp;text&nbsp;to&nbsp;segment?</span>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="modal-buttons">
                 <button class="btn btn-danger" onclick="app.deleteNode()">🗑️ Delete</button>
@@ -1383,20 +1392,22 @@ class TikZEmbeddedNode {
         this.anchor = anchor;
         this.fontSize = 'normal';
         this.color = 'black';
+        this.sloped = false;
     }
-    
+
     toTikZ() {
         let opts = [this.anchor];
+        if (this.sloped) opts.push('sloped');
         if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
         if (this.color !== 'black') opts.push(`text=${this.color}`);
-        
+
         let posStr = '';
         if (this.position === 0.5) posStr = 'midway';
         else if (this.position === 0) posStr = 'at start';
         else if (this.position === 1) posStr = 'at end';
         else posStr = `pos=${this.position}`;
         opts.push(posStr);
-        
+
         return ` node[${opts.join(', ')}] {${this.text}}`;
     }
 }
@@ -3705,14 +3716,21 @@ class TikZDrawApp {
         ctx.setLineDash([]);
 
         // Draw embedded nodes AFTER the line
+        // Calculate line angle for sloped labels (in screen coordinates, Y is inverted)
+        let lineAngle = -Math.atan2(to.y - from.y, to.x - from.x);
+        // Normalize angle to keep text readable (not upside down)
+        if (lineAngle > Math.PI / 2) lineAngle -= Math.PI;
+        if (lineAngle < -Math.PI / 2) lineAngle += Math.PI;
+
         for (const node of seg.nodes) {
             const t = node.position;
             const nx = from.x + t * (to.x - from.x);
             const ny = from.y + t * (to.y - from.y);
-            this.drawLabel(node, nx, ny);
+            const angle = node.sloped ? lineAngle : 0;
+            this.drawLabel(node, nx, ny, angle);
         }
     }
-    
+
     getLineDash(style) {
         switch (style) {
             case 'dashed': return [8, 4];
@@ -3942,14 +3960,21 @@ class TikZDrawApp {
         }
 
         // Draw embedded nodes AFTER the line and arrowheads
+        // Calculate line angle for sloped labels (in screen coordinates, Y is inverted)
+        let lineAngle = -Math.atan2(to.y - from.y, to.x - from.x);
+        // Normalize angle to keep text readable (not upside down)
+        if (lineAngle > Math.PI / 2) lineAngle -= Math.PI;
+        if (lineAngle < -Math.PI / 2) lineAngle += Math.PI;
+
         for (const node of vec.nodes) {
             const t = node.position;
             const nx = from.x + t * (to.x - from.x);
             const ny = from.y + t * (to.y - from.y);
-            this.drawLabel(node, nx, ny);
+            const nodeAngle = node.sloped ? lineAngle : 0;
+            this.drawLabel(node, nx, ny, nodeAngle);
         }
     }
-    
+
     drawArrowhead(x, y, angle, size) {
         const ctx = this.ctx;
         ctx.beginPath();
@@ -4133,11 +4158,18 @@ class TikZDrawApp {
         // Draw embedded nodes on each segment
         for (let i = 0; i < points.length - 1; i++) {
             const segmentNodes = path.nodes.filter(n => n.segmentIndex === i);
+            // Calculate segment angle for sloped labels
+            let segAngle = -Math.atan2(points[i+1].y - points[i].y, points[i+1].x - points[i].x);
+            // Normalize angle to keep text readable
+            if (segAngle > Math.PI / 2) segAngle -= Math.PI;
+            if (segAngle < -Math.PI / 2) segAngle += Math.PI;
+
             for (const node of segmentNodes) {
                 const t = node.position;
                 const nx = points[i].x + t * (points[i+1].x - points[i].x);
                 const ny = points[i].y + t * (points[i+1].y - points[i].y);
-                this.drawLabel(node, nx, ny);
+                const angle = node.sloped ? segAngle : 0;
+                this.drawLabel(node, nx, ny, angle);
             }
         }
 
@@ -4145,11 +4177,17 @@ class TikZDrawApp {
         if (path.closed && points.length > 2) {
             const closingIndex = points.length - 1;
             const closingNodes = path.nodes.filter(n => n.segmentIndex === closingIndex);
+            // Calculate closing segment angle
+            let closingAngle = -Math.atan2(points[0].y - points[closingIndex].y, points[0].x - points[closingIndex].x);
+            if (closingAngle > Math.PI / 2) closingAngle -= Math.PI;
+            if (closingAngle < -Math.PI / 2) closingAngle += Math.PI;
+
             for (const node of closingNodes) {
                 const t = node.position;
                 const nx = points[closingIndex].x + t * (points[0].x - points[closingIndex].x);
                 const ny = points[closingIndex].y + t * (points[0].y - points[closingIndex].y);
-                this.drawLabel(node, nx, ny);
+                const angle = node.sloped ? closingAngle : 0;
+                this.drawLabel(node, nx, ny, angle);
             }
         }
     }
@@ -4304,7 +4342,7 @@ class TikZDrawApp {
         ctx.restore();
     }
 
-    drawLabel(node, wx, wy) {
+    drawLabel(node, wx, wy, angle = 0) {
         const ctx = this.ctx;
         const pos = this.worldToScreen(wx, wy);
         const color = this.getColor(node.color || 'black');
@@ -4312,7 +4350,7 @@ class TikZDrawApp {
         const text = node.text ? node.text : node.label;
         const anchor = node.anchor ? node.anchor : (node.position ? node.position : node.labelPosition);
 
-        // Calculate offset based on position
+        // Calculate offset based on anchor position
         let offsetX = 0, offsetY = 0;
         const offset = 15;
 
@@ -4323,10 +4361,23 @@ class TikZDrawApp {
         const cacheKey = `${text}::${color}::${fontSize}`;
         const cached = this.latexCache.get(cacheKey);
 
+        // Save context for rotation
+        ctx.save();
+
+        // Translate to the label position and apply rotation if needed
+        if (angle !== 0) {
+            ctx.translate(pos.x, pos.y);
+            ctx.rotate(angle);
+            // Now draw relative to origin (0, 0)
+        }
+
+        const drawPosX = angle !== 0 ? 0 : pos.x;
+        const drawPosY = angle !== 0 ? 0 : pos.y;
+
         if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
             // Draw rendered LaTeX image
-            const drawX = pos.x + (anchor.includes('right') ? 5 : (anchor.includes('left') ? (- cached.width - 5) : (- cached.width / 2)));
-            const drawY = pos.y + offsetY - cached.height / 2;
+            const drawX = drawPosX + (anchor.includes('right') ? 5 : (anchor.includes('left') ? (- cached.width - 5) : (- cached.width / 2)));
+            const drawY = drawPosY + offsetY - cached.height / 2;
 
             // Draw contour stroke if present
             if (cached.hasContour && cached.contourColor) {
@@ -4344,14 +4395,14 @@ class TikZDrawApp {
                 const tempCtx = tempCanvas.getContext('2d');
 
                 // Draw the image multiple times offset to create stroke effect
-                const offset = strokeWidth;
+                const contourOffset = strokeWidth;
                 tempCtx.globalCompositeOperation = 'source-over';
 
                 // Draw stroke in 8 directions
-                for (let dx = -offset; dx <= offset; dx++) {
-                    for (let dy = -offset; dy <= offset; dy++) {
+                for (let dx = -contourOffset; dx <= contourOffset; dx++) {
+                    for (let dy = -contourOffset; dy <= contourOffset; dy++) {
                         if (dx !== 0 || dy !== 0) {
-                            tempCtx.drawImage(cached.img, offset * 2 + dx, offset * 2 + dy);
+                            tempCtx.drawImage(cached.img, contourOffset * 2 + dx, contourOffset * 2 + dy);
                         }
                     }
                 }
@@ -4362,7 +4413,7 @@ class TikZDrawApp {
                 tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
                 // Draw the filled stroke to main canvas (will scale back to display size)
-                const displayOffset = offset * 2 / imageScale;
+                const displayOffset = contourOffset * 2 / imageScale;
                 ctx.drawImage(tempCanvas, drawX - displayOffset, drawY - displayOffset,
                              cached.width + displayOffset * 2, cached.height + displayOffset * 2);
             }
@@ -4376,8 +4427,10 @@ class TikZDrawApp {
             ctx.font = this.getFontSizePixels(fontSize) + ' serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(text, pos.x + offsetX, pos.y + offsetY);
+            ctx.fillText(text, drawPosX + offsetX, drawPosY + offsetY);
         }
+
+        ctx.restore();
     }
 
     drawSelectionHighlight(obj) {
@@ -5789,6 +5842,10 @@ class TikZDrawApp {
                 }
             }
 
+            // Populate sloped checkbox
+            const nodeSlopedEl = document.getElementById('nodeSloped');
+            if (nodeSlopedEl) nodeSlopedEl.checked = node.sloped || false;
+
             // Set up event listeners
             const textInput = document.getElementById('nodeText');
             if (textInput) {
@@ -5865,6 +5922,7 @@ class TikZDrawApp {
         this.editingNode.anchor = document.getElementById('nodeAnchor').value;
         this.editingNode.fontSize = document.getElementById('nodeFontSize').value;
         this.editingNode.color = document.getElementById('nodeColor').value;
+        this.editingNode.sloped = document.getElementById('nodeSloped').checked;
 
         this.closeNodeEditor();
         this.render();
@@ -6627,7 +6685,8 @@ class TikZDrawApp {
                 position: n.position,
                 anchor: n.anchor,
                 fontSize: n.fontSize,
-                color: n.color
+                color: n.color,
+                sloped: n.sloped
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6645,7 +6704,8 @@ class TikZDrawApp {
                 position: n.position,
                 anchor: n.anchor,
                 fontSize: n.fontSize,
-                color: n.color
+                color: n.color,
+                sloped: n.sloped
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6700,7 +6760,8 @@ class TikZDrawApp {
                 anchor: n.anchor,
                 fontSize: n.fontSize,
                 color: n.color,
-                segmentIndex: n.segmentIndex
+                segmentIndex: n.segmentIndex,
+                sloped: n.sloped
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6848,6 +6909,7 @@ class TikZDrawApp {
                             const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
                             node.fontSize = n.fontSize || 'normal';
                             node.color = n.color || 'black';
+                            node.sloped = n.sloped || false;
                             return node;
                         });
                     }
@@ -6866,6 +6928,7 @@ class TikZDrawApp {
                             const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
                             node.fontSize = n.fontSize || 'normal';
                             node.color = n.color || 'black';
+                            node.sloped = n.sloped || false;
                             return node;
                         });
                     }
@@ -6927,6 +6990,7 @@ class TikZDrawApp {
                             node.fontSize = n.fontSize || 'normal';
                             node.color = n.color || 'black';
                             node.segmentIndex = n.segmentIndex;
+                            node.sloped = n.sloped || false;
                             return node;
                         });
                     }
