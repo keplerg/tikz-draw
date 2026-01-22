@@ -4376,14 +4376,14 @@ class TikZDrawApp {
 
         if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
             // Draw rendered LaTeX image
-            const drawX = drawPosX + (anchor.includes('right') ? 5 : (anchor.includes('left') ? (- cached.width - 5) : (- cached.width / 2)));
-            const drawY = drawPosY + offsetY - cached.height / 2;
+            const drawX = drawPosX + (anchor.includes('right') ? 5 : (anchor.includes('left') ? (- cached.width  * (this.zoom / 50) - 5) : (- cached.width * (this.zoom / 50) / 2)));
+            const drawY = drawPosY + offsetY - cached.height * (this.zoom / 50) / 2;
 
             // Draw contour stroke if present
             if (cached.hasContour && cached.contourColor) {
                 const contourColor = this.getColor(cached.contourColor);
                 // Work at image resolution (2x) for proper stroke scaling
-                const imageScale = cached.img.naturalWidth / cached.width;
+                const imageScale = cached.img.naturalWidth / cached.width * (this.zoom / 50);
                 const strokeWidth = 0.8 * imageScale;
 
                 // Create temporary canvas at image resolution
@@ -4418,7 +4418,7 @@ class TikZDrawApp {
                              cached.width + displayOffset * 2, cached.height + displayOffset * 2);
             }
 
-            ctx.drawImage(cached.img, drawX, drawY, cached.width, cached.height);
+            ctx.drawImage(cached.img, drawX, drawY, cached.width * (this.zoom / 50), cached.height * (this.zoom / 50));
         } else {
             // Queue for rendering and show plain text as fallback
             this.queueLatexRender(text, color, fontSize);
