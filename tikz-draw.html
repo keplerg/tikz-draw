@@ -1399,7 +1399,7 @@ class TikZEmbeddedNode {
         this.position = position; // 0 to 1
         this.anchor = anchor;
         this.fontSize = 'normal';
-        this.color = 'black';
+        this.color = '';
         this.sloped = false;
         this.rotation = 0;
     }
@@ -1408,7 +1408,7 @@ class TikZEmbeddedNode {
         let opts = [this.anchor];
         if (this.sloped) opts.push('sloped');
         if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
-        if (this.color !== 'black') opts.push(`text=${this.color}`);
+        if (this.color !== '') opts.push(`text=${this.color}`);
         // Only add rotation if not sloped (sloped handles rotation automatically)
         if (!this.sloped && this.rotation !== 0) opts.push(`rotate=${-this.rotation}`);
 
