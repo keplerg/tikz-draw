@@ -845,9 +845,15 @@
                     <span class="property-label">Sloped:</span>
                     <div class="property-input">
                         <label style="display:flex;align-items:center;gap:8px;">
-                            <input type="checkbox" id="nodeSloped">
+                            <input type="checkbox" id="nodeSloped" onchange="document.getElementById('nodeRotationRow').style.display = this.checked ? 'none' : 'flex';">
                             <span style="font-size:12px;color:#888;">Rotate&nbsp;text&nbsp;to&nbsp;segment?</span>
                         </label>
+                    </div>
+                </div>
+                <div class="property-row" id="nodeRotationRow">
+                    <span class="property-label">Rotation:</span>
+                    <div class="property-input">
+                        <input type="number" step="5" id="nodeRotation" value="0" style="width:80px;"> deg
                     </div>
                 </div>
             </div>
@@ -1318,14 +1324,16 @@ class TikZLabel extends TikZObject {
         this.fontSize = 'normal';
         this.name = this.id.replace('label_', 'T');
         this.color = 'black';
+        this.rotation = 0;
     }
-    
+
     toTikZ() {
         let opts = [this.position];
         if (this.color !== 'black') opts.push(`text=${this.color}`);
         if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
         if (this.distance > 0) opts[0] = `${this.position}=${this.distance}pt`;
-        
+        if (this.rotation !== 0) opts.push(`rotate=-${this.rotation}`);
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  \\node${optStr} at (${this.at}) {${this.text}};`;
     }
@@ -1393,6 +1401,7 @@ class TikZEmbeddedNode {
         this.fontSize = 'normal';
         this.color = 'black';
         this.sloped = false;
+        this.rotation = 0;
     }
 
     toTikZ() {
@@ -1400,6 +1409,8 @@ class TikZEmbeddedNode {
         if (this.sloped) opts.push('sloped');
         if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
         if (this.color !== 'black') opts.push(`text=${this.color}`);
+        // Only add rotation if not sloped (sloped handles rotation automatically)
+        if (!this.sloped && this.rotation !== 0) opts.push(`rotate=${-this.rotation}`);
 
         let posStr = '';
         if (this.position === 0.5) posStr = 'midway';
@@ -1508,9 +1519,11 @@ class TikZDrawApp {
         this.rotateCurrentAngle = null; // Current angle from center to mouse
         this.rotateCoords = []; // Coordinates being rotated
         this.rotateOriginalPositions = []; // Original positions of coordinates
-        this.rotateImages = []; // Rectangles being rotated with original deltas
+        this.rotateImages = []; // Images being rotated with original rotations
+        this.rotateLabels = []; // Labels being rotated with original rotations
+        this.rotateEmbeddedNodes = []; // Embedded nodes being rotated with original rotations
         this.rotateRectangles = []; // Rectangles being rotated with original deltas
-        this.rotateGrids = []; // Rectangles being rotated with original deltas
+        this.rotateGrids = []; // Grids being rotated with original deltas
 
         // Clipboard for copy/paste
         this.clipboard = null;
@@ -2596,6 +2609,20 @@ class TikZDrawApp {
                 }
             }
 
+            // Update label rotation properties
+            if (this.rotateLabels && this.rotateLabels.length > 0) {
+                for (const item of this.rotateLabels) {
+                    item.label.rotation = item.originalRotation - rotationAngle;
+                }
+            }
+
+            // Update embedded node rotation properties (for non-sloped labels on segments/vectors/paths)
+            if (this.rotateEmbeddedNodes && this.rotateEmbeddedNodes.length > 0) {
+                for (const item of this.rotateEmbeddedNodes) {
+                    item.node.rotation = item.originalRotation - rotationAngle;
+                }
+            }
+
             // Update rectangle rotation properties
             if (this.rotateRectangles && this.rotateRectangles.length > 0) {
                 for (const item of this.rotateRectangles) {
@@ -2701,6 +2728,8 @@ class TikZDrawApp {
             this.rotateGrids = [];
             this.rotateArcs = [];
             this.rotateImages = [];
+            this.rotateLabels = [];
+            this.rotateEmbeddedNodes = [];
             // Reset cursor back to rotate tool cursor
             if (this.currentTool === 'rotate') {
                 this.canvas.style.cursor = 'crosshair';
@@ -3049,6 +3078,30 @@ class TikZDrawApp {
                 image: img,
                 originalRotation: img.rotation || 0
             }));
+
+            // Labels rotate around their anchor point by updating their rotation property as well as their coordinate.
+            const labels = objectsToRotate.filter(obj => obj instanceof TikZLabel);
+
+            // Store labels and their original rotations
+            this.rotateLabels = labels.map(lbl => ({
+                label: lbl,
+                originalRotation: lbl.rotation || 0
+            }));
+
+            // Embedded nodes on segments/vectors/paths should also rotate (when not sloped)
+            this.rotateEmbeddedNodes = [];
+            for (const obj of objectsToRotate) {
+                if (obj.nodes && obj.nodes.length > 0) {
+                    for (const node of obj.nodes) {
+                        if (!node.sloped) {
+                            this.rotateEmbeddedNodes.push({
+                                node: node,
+                                originalRotation: node.rotation || 0
+                            });
+                        }
+                    }
+                }
+            }
 
             // Rectangles rotate around their center point by calculating it from corner points.
             const rectangles = objectsToRotate.filter(obj => obj instanceof TikZRectangle);
@@ -3660,7 +3713,7 @@ class TikZDrawApp {
         }
         else if (obj instanceof TikZLabel) {
             const at = this.getCoordByName(obj.at);
-            if (at) this.drawLabel(obj, at.x, at.y);
+            if (at) this.drawLabel(obj, at.x, at.y, (obj.rotation || 0) * Math.PI / 180);
         }
     }
     
@@ -3726,7 +3779,7 @@ class TikZDrawApp {
             const t = node.position;
             const nx = from.x + t * (to.x - from.x);
             const ny = from.y + t * (to.y - from.y);
-            const angle = node.sloped ? lineAngle : 0;
+            const angle = node.sloped ? lineAngle : (node.rotation || 0) * Math.PI / 180;
             this.drawLabel(node, nx, ny, angle);
         }
     }
@@ -3970,7 +4023,7 @@ class TikZDrawApp {
             const t = node.position;
             const nx = from.x + t * (to.x - from.x);
             const ny = from.y + t * (to.y - from.y);
-            const nodeAngle = node.sloped ? lineAngle : 0;
+            const nodeAngle = node.sloped ? lineAngle : (node.rotation || 0) * Math.PI / 180;
             this.drawLabel(node, nx, ny, nodeAngle);
         }
     }
@@ -4168,7 +4221,7 @@ class TikZDrawApp {
                 const t = node.position;
                 const nx = points[i].x + t * (points[i+1].x - points[i].x);
                 const ny = points[i].y + t * (points[i+1].y - points[i].y);
-                const angle = node.sloped ? segAngle : 0;
+                const angle = node.sloped ? segAngle : (node.rotation || 0) * Math.PI / 180;
                 this.drawLabel(node, nx, ny, angle);
             }
         }
@@ -4186,7 +4239,7 @@ class TikZDrawApp {
                 const t = node.position;
                 const nx = points[closingIndex].x + t * (points[0].x - points[closingIndex].x);
                 const ny = points[closingIndex].y + t * (points[0].y - points[closingIndex].y);
-                const angle = node.sloped ? closingAngle : 0;
+                const angle = node.sloped ? closingAngle : (node.rotation || 0) * Math.PI / 180;
                 this.drawLabel(node, nx, ny, angle);
             }
         }
@@ -5454,6 +5507,12 @@ class TikZDrawApp {
                 <span class="property-label">Color:</span>
                 <div class="property-input">${this.renderColorSelect(label.color, 'color')}</div>
             </div>
+            <div class="property-row">
+                <span class="property-label">Rotation:</span>
+                <div class="property-input">
+                    <input type="number" step="5" data-prop="rotation" value="${label.rotation || 0}"> deg
+                </div>
+            </div>
         `;
     }
 
@@ -5846,6 +5905,13 @@ class TikZDrawApp {
             const nodeSlopedEl = document.getElementById('nodeSloped');
             if (nodeSlopedEl) nodeSlopedEl.checked = node.sloped || false;
 
+            const nodeRotationEl = document.getElementById('nodeRotation');
+            if (nodeRotationEl) nodeRotationEl.value = node.rotation || 0;
+
+            // Show/hide rotation row based on sloped state
+            const nodeRotationRow = document.getElementById('nodeRotationRow');
+            if (nodeRotationRow) nodeRotationRow.style.display = node.sloped ? 'none' : 'flex';
+
             // Set up event listeners
             const textInput = document.getElementById('nodeText');
             if (textInput) {
@@ -5923,6 +5989,7 @@ class TikZDrawApp {
         this.editingNode.fontSize = document.getElementById('nodeFontSize').value;
         this.editingNode.color = document.getElementById('nodeColor').value;
         this.editingNode.sloped = document.getElementById('nodeSloped').checked;
+        this.editingNode.rotation = parseFloat(document.getElementById('nodeRotation').value) || 0;
 
         this.closeNodeEditor();
         this.render();
@@ -6686,7 +6753,8 @@ class TikZDrawApp {
                 anchor: n.anchor,
                 fontSize: n.fontSize,
                 color: n.color,
-                sloped: n.sloped
+                sloped: n.sloped,
+                rotation: n.rotation
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6705,7 +6773,8 @@ class TikZDrawApp {
                 anchor: n.anchor,
                 fontSize: n.fontSize,
                 color: n.color,
-                sloped: n.sloped
+                sloped: n.sloped,
+                rotation: n.rotation
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6761,7 +6830,8 @@ class TikZDrawApp {
                 fontSize: n.fontSize,
                 color: n.color,
                 segmentIndex: n.segmentIndex,
-                sloped: n.sloped
+                sloped: n.sloped,
+                rotation: n.rotation
             }));
             data.expanded = obj.expanded;
             data.name = obj.name;
@@ -6781,6 +6851,7 @@ class TikZDrawApp {
             data.distance = obj.distance;
             data.fontSize = obj.fontSize;
             data.color = obj.color;
+            data.rotation = obj.rotation;
             data.expanded = obj.expanded;
             data.name = obj.name;
         } else if (obj instanceof TikZImage) {
@@ -6910,6 +6981,7 @@ class TikZDrawApp {
                             node.fontSize = n.fontSize || 'normal';
                             node.color = n.color || 'black';
                             node.sloped = n.sloped || false;
+                            node.rotation = n.rotation || 0;
                             return node;
                         });
                     }
@@ -6929,6 +7001,7 @@ class TikZDrawApp {
                             node.fontSize = n.fontSize || 'normal';
                             node.color = n.color || 'black';
                             node.sloped = n.sloped || false;
+                            node.rotation = n.rotation || 0;
                             return node;
                         });
                     }
@@ -6991,6 +7064,7 @@ class TikZDrawApp {
                             node.color = n.color || 'black';
                             node.segmentIndex = n.segmentIndex;
                             node.sloped = n.sloped || false;
+                            node.rotation = n.rotation || 0;
                             return node;
                         });
                     }
@@ -7009,6 +7083,7 @@ class TikZDrawApp {
                     obj.distance = data.distance;
                     obj.fontSize = data.fontSize;
                     obj.color = data.color;
+                    obj.rotation = data.rotation || 0;
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZImage':
