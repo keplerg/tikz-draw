@@ -620,10 +620,6 @@
                 <span class="tool-icon">─</span>
                 <span>Line</span>
             </div>
-            <div class="tool" data-tool="vector" title="Vector (A)">
-                <span class="tool-icon">→</span>
-                <span>Vector</span>
-            </div>
             <div class="tool-divider"></div>
             <div class="tool" data-tool="circle" title="Circle (C)">
                 <span class="tool-icon">○</span>
@@ -986,22 +982,34 @@ class TikZSegment extends TikZObject {
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
+        this.arrowEnd = 'none';  // Arrow options: 'none', '-Stealth', 'Stealth-', 'Stealth-Stealth', etc.
+        this.arrowSize = 1.0;
         this.nodes = []; // Embedded labels
         this.name = this.id.replace('line_', 'L');
     }
-    
+
     toTikZ() {
         let opts = [];
+
+        // Arrow specification (if any)
+        if (this.arrowEnd && this.arrowEnd !== 'none') {
+            opts.push(this.arrowEnd);
+            if (this.arrowSize !== 1.0) {
+                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
+                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
+            }
+        }
+
         if (this.color !== 'black') opts.push(this.color);
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
-        
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         let nodeStr = this.nodes.map(n => n.toTikZ()).join(' ');
-        
+
         return `  \\draw${optStr} (${this.from}) --${nodeStr} (${this.to});`;
     }
-    
+
     getSubObjects() {
         return [
             { type: 'ref', label: `(${this.from})`, ref: this.from },
@@ -1109,22 +1117,34 @@ class TikZArc extends TikZObject {
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
+        this.arrowEnd = 'none';
+        this.arrowSize = 1.0;
         this.name = this.id.replace('arc_', 'A');
     }
-    
+
     toTikZ() {
         let opts = [];
+
+        // Arrow specification (if any)
+        if (this.arrowEnd && this.arrowEnd !== 'none') {
+            opts.push(this.arrowEnd);
+            if (this.arrowSize !== 1.0) {
+                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
+                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
+            }
+        }
+
         if (this.color !== 'black') opts.push(this.color);
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle === 'dashed') opts.push('dashed');
         if (this.lineStyle === 'dotted') opts.push('dotted');
-        
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
-        
+
         // Calculate start point
         const startX = parseFloat(app.getCoordByName(this.center)?.x || 0) + this.radius * Math.cos(this.startAngle * Math.PI / 180);
         const startY = parseFloat(app.getCoordByName(this.center)?.y || 0) + this.radius * Math.sin(this.startAngle * Math.PI / 180);
-        
+
         return `  \\draw${optStr} (${startX.toFixed(2)}, ${startY.toFixed(2)}) arc (${this.startAngle.toFixed(1)}:${this.endAngle.toFixed(1)}:${this.radius.toFixed(2)});`;
     }
 }
@@ -1275,40 +1295,56 @@ class TikZPath extends TikZObject {
 }
 
 class TikZBezier extends TikZObject {
-    constructor(fromCoord, controlCoord, toCoord) {
+    constructor(fromCoord, control1Coord, control2Coord, toCoord) {
         super('bezier');
         this.from = fromCoord;
-        this.control = controlCoord;
+        this.control1 = control1Coord;
+        this.control2 = control2Coord;
         this.to = toCoord;
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
+        this.arrowEnd = 'none';
+        this.arrowSize = 1.0;
         this.name = this.id.replace('bezier_', 'B');
     }
-    
+
     toTikZ() {
         let opts = [];
+
+        // Arrow specification (if any)
+        if (this.arrowEnd && this.arrowEnd !== 'none') {
+            opts.push(this.arrowEnd);
+            if (this.arrowSize !== 1.0) {
+                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
+                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
+            }
+        }
+
         if (this.color !== 'black') opts.push(this.color);
         if (this.thickness !== 'thin') opts.push(this.thickness);
         if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
-        
+
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
-        
+
         // Get control point coordinates
-        const ctrl = app.getCoordByName(this.control);
-        if (ctrl) {
-            // Use "controls (c) and (c)" for quadratic bezier in TikZ
-            const cx = ctrl.x.toFixed(2);
-            const cy = ctrl.y.toFixed(2);
-            return `  \\draw${optStr} (${this.from}) .. controls (${cx}, ${cy}) and (${cx}, ${cy}) .. (${this.to});`;
+        const ctrl1 = app.getCoordByName(this.control1);
+        const ctrl2 = app.getCoordByName(this.control2);
+        if (ctrl1 && ctrl2) {
+            const c1x = ctrl1.x.toFixed(2);
+            const c1y = ctrl1.y.toFixed(2);
+            const c2x = ctrl2.x.toFixed(2);
+            const c2y = ctrl2.y.toFixed(2);
+            return `  \\draw${optStr} (${this.from}) .. controls (${c1x}, ${c1y}) and (${c2x}, ${c2y}) .. (${this.to});`;
         }
         return `  \\draw${optStr} (${this.from}) -- (${this.to});`;
     }
-    
+
     getSubObjects() {
         return [
             { type: 'ref', label: `(${this.from})`, ref: this.from },
-            { type: 'control', label: `◇ (${this.control})`, ref: this.control, parent: this },
+            { type: 'control', label: `◇1 (${this.control1})`, ref: this.control1, parent: this, controlIndex: 1 },
+            { type: 'control', label: `◇2 (${this.control2})`, ref: this.control2, parent: this, controlIndex: 2 },
             { type: 'ref', label: `(${this.to})`, ref: this.to }
         ];
     }
@@ -1987,13 +2023,19 @@ class TikZDrawApp {
     }
     
     findObjectAt(wx, wy) {
-        // Priority check: if a bezier is selected, check its control point first
+        // Priority check: if a bezier is selected, check its control points first
         // This ensures control points are clickable even when grids are behind them
         if (this.selectedObjects.length === 1 && this.selectedObjects[0] instanceof TikZBezier) {
-            const ctrl = this.getCoordByName(this.selectedObjects[0].control);
-            if (ctrl) {
-                const dist = Math.hypot(ctrl.x - wx, ctrl.y - wy);
-                if (dist < 0.3) return ctrl; // Larger hit radius for better grabbing
+            const bezier = this.selectedObjects[0];
+            const ctrl1 = this.getCoordByName(bezier.control1);
+            const ctrl2 = this.getCoordByName(bezier.control2);
+            if (ctrl1) {
+                const dist = Math.hypot(ctrl1.x - wx, ctrl1.y - wy);
+                if (dist < 0.3) return ctrl1; // Larger hit radius for better grabbing
+            }
+            if (ctrl2) {
+                const dist = Math.hypot(ctrl2.x - wx, ctrl2.y - wy);
+                if (dist < 0.3) return ctrl2;
             }
         }
 
@@ -2048,15 +2090,16 @@ class TikZDrawApp {
             }
             else if (obj instanceof TikZBezier) {
                 const from = this.getCoordByName(obj.from);
-                const ctrl = this.getCoordByName(obj.control);
+                const ctrl1 = this.getCoordByName(obj.control1);
+                const ctrl2 = this.getCoordByName(obj.control2);
                 const to = this.getCoordByName(obj.to);
-                if (from && ctrl && to) {
-                    // Sample points along cubic bezier (same control point twice)
+                if (from && ctrl1 && ctrl2 && to) {
+                    // Sample points along cubic bezier
                     for (let t = 0; t <= 1; t += 0.05) {
-                        // Cubic bezier formula with c1 = c2 = ctrl
+                        // Cubic bezier formula: B(t) = (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
                         const mt = 1 - t;
-                        const px = mt*mt*mt*from.x + 3*mt*mt*t*ctrl.x + 3*mt*t*t*ctrl.x + t*t*t*to.x;
-                        const py = mt*mt*mt*from.y + 3*mt*mt*t*ctrl.y + 3*mt*t*t*ctrl.y + t*t*t*to.y;
+                        const px = mt*mt*mt*from.x + 3*mt*mt*t*ctrl1.x + 3*mt*t*t*ctrl2.x + t*t*t*to.x;
+                        const py = mt*mt*mt*from.y + 3*mt*mt*t*ctrl1.y + 3*mt*t*t*ctrl2.y + t*t*t*to.y;
                         if (Math.hypot(wx - px, wy - py) < 0.15) return obj;
                     }
                 }
@@ -2276,7 +2319,7 @@ class TikZDrawApp {
         } else if (obj instanceof TikZPath) {
             coordNames.push(...obj.points);
         } else if (obj instanceof TikZBezier) {
-            coordNames.push(obj.from, obj.control, obj.to);
+            coordNames.push(obj.from, obj.control1, obj.control2, obj.to);
         } else if (obj instanceof TikZLabel) {
             coordNames.push(obj.at);
         } else if (obj instanceof TikZImage) {
@@ -2327,7 +2370,8 @@ class TikZDrawApp {
             obj.points = obj.points.map(p => p === oldName ? newName : p);
         } else if (obj instanceof TikZBezier) {
             if (obj.from === oldName) obj.from = newName;
-            if (obj.control === oldName) obj.control = newName;
+            if (obj.control1 === oldName) obj.control1 = newName;
+            if (obj.control2 === oldName) obj.control2 = newName;
             if (obj.to === oldName) obj.to = newName;
         } else if (obj instanceof TikZLabel) {
             if (obj.at === oldName) obj.at = newName;
@@ -2776,7 +2820,7 @@ class TikZDrawApp {
 
         // Tool shortcuts - only when not in input
         const toolKeys = {
-            'v': 'select', 'm': 'move', 'o': 'rotate', 'p': 'point', 'l': 'line', 'a': 'vector',
+            'v': 'select', 'm': 'move', 'o': 'rotate', 'p': 'point', 'l': 'line',
             'c': 'circle', 'r': 'arc', 'b': 'rect', 't': 'label',
             'h': 'path', 'q': 'bezier', 'g': 'grid', 'i': 'image'
         };
@@ -2971,6 +3015,22 @@ class TikZDrawApp {
     
     handleSelectClick(world, ctrl_click) {
         const obj = this.findObjectAt(world.x, world.y);
+
+        // Check if clicking on a control point of a selected bezier
+        if (obj instanceof TikZCoordinate && this.selectedObjects.length === 1) {
+            const selectedBezier = this.selectedObjects[0];
+            if (selectedBezier instanceof TikZBezier) {
+                if (obj.name === selectedBezier.control1 || obj.name === selectedBezier.control2) {
+                    // Save state for undo before dragging
+                    this.saveState();
+                    // Start dragging the control point but keep bezier selected
+                    this.isDragging = true;
+                    this.dragObject = obj;
+                    this.render();
+                    return;
+                }
+            }
+        }
 
         // Clear selected if not a control click
         if (!ctrl_click) {
@@ -3224,11 +3284,21 @@ class TikZDrawApp {
         }
     }
 
+    switchToSelectMode() {
+        this.currentTool = 'select';
+        this.toolState = null;
+        document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
+        document.querySelector('.tool[data-tool="select"]').classList.add('active');
+        this.canvas.style.cursor = 'default';
+        this.updateStatusTip();
+    }
+
     handlePointClick(snapped) {
         // Check for existing point
         const existing = this.findCoordNear(snapped.x, snapped.y, 0.1);
         if (existing) {
             this.selectedObjects = [existing];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3240,11 +3310,13 @@ class TikZDrawApp {
         coord.showPoint = true;
         this.addObject(coord);
         this.selectedObjects = [coord];
+        this.switchToSelectMode();
         this.updatePropertiesPanel();
         this.updateObjectList();
         this.updateUndoRedoButtons();
+        this.render();
     }
-    
+
     handleLineClick(snapped) {
         // Try to find existing coordinate nearby
         let coord = this.findCoordNear(snapped.x, snapped.y);
@@ -3258,21 +3330,20 @@ class TikZDrawApp {
         this.tempPoints.push(coord.name);
         
         if (this.tempPoints.length === 2) {
-            // Create line or vector
-            const obj = this.currentTool === 'vector'
-                ? new TikZVector(this.tempPoints[0], this.tempPoints[1])
-                : new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
+            // Create line segment
+            const obj = new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
             this.addObject(obj);
             this.selectedObjects = [obj];
             this.tempPoints = [];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
-    
+
     handleCircleClick(snapped) {
         if (this.tempPoints.length === 0) {
             // First click: center
@@ -3291,6 +3362,7 @@ class TikZDrawApp {
             this.addObject(circle);
             this.selectedObjects = [circle];
             this.tempPoints = [];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3324,6 +3396,7 @@ class TikZDrawApp {
             this.addObject(arc);
             this.selectedObjects = [arc];
             this.tempPoints = [];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3346,6 +3419,7 @@ class TikZDrawApp {
             this.addObject(rect);
             this.selectedObjects = [rect];
             this.tempPoints = [];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3362,6 +3436,7 @@ class TikZDrawApp {
             const label = new TikZLabel(coord.name, '$x$');
             this.addObject(label);
             this.selectedObjects = [label];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3372,11 +3447,12 @@ class TikZDrawApp {
             const label = new TikZLabel(newCoord.name, '$x$');
             this.addObject(label);
             this.selectedObjects = [label];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
         }
-        
+
         this.render();
     }
 
@@ -3435,6 +3511,7 @@ class TikZDrawApp {
                 this.saveState(); // For undo
                 this.addObject(tikzImg);
                 this.selectedObjects = [tikzImg];
+                this.switchToSelectMode();
                 this.updatePropertiesPanel();
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
@@ -3471,6 +3548,7 @@ class TikZDrawApp {
             this.addObject(path);
             this.selectedObjects = [path];
             this.tempPoints = [];
+            this.switchToSelectMode();
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3484,6 +3562,7 @@ class TikZDrawApp {
                 this.selectedObjects = [path];
                 this.tempPoints = [];
                 this.toolState = null;
+                this.switchToSelectMode();
                 this.updatePropertiesPanel();
                 this.updateObjectList();
                 this.updateUndoRedoButtons();
@@ -3504,17 +3583,51 @@ class TikZDrawApp {
             coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
             this.addObject(coord);
         }
-        
+
         this.tempPoints.push(coord.name);
 
-        if (this.tempPoints.length === 3) {
-            const bezier = new TikZBezier(this.tempPoints[0], this.tempPoints[1], this.tempPoints[2]);
-            this.addObject(bezier);
-            this.selectedObjects = [bezier];
-            this.tempPoints = [];
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
+        if (this.tempPoints.length === 2) {
+            // Get start and end coordinates
+            const fromCoord = this.getCoordByName(this.tempPoints[0]);
+            const toCoord = this.getCoordByName(this.tempPoints[1]);
+
+            if (fromCoord && toCoord) {
+                // Calculate control points offset perpendicular to the line
+                const dx = toCoord.x - fromCoord.x;
+                const dy = toCoord.y - fromCoord.y;
+                const len = Math.hypot(dx, dy);
+
+                // Perpendicular offset (on one side of the line)
+                const perpX = -dy / len * 0.4 * len;  // 40% of length as offset
+                const perpY = dx / len * 0.4 * len;
+
+                // Control point 1: 1/3 along the line, offset perpendicular
+                const c1x = fromCoord.x + dx / 3 + perpX;
+                const c1y = fromCoord.y + dy / 3 + perpY;
+
+                // Control point 2: 2/3 along the line, offset perpendicular
+                const c2x = fromCoord.x + 2 * dx / 3 + perpX;
+                const c2y = fromCoord.y + 2 * dy / 3 + perpY;
+
+                // Create control point coordinates (hidden by default)
+                const ctrl1 = new TikZCoordinate(c1x, c1y, this.generateCoordName());
+                ctrl1.showPoint = false;
+                this.addObject(ctrl1);
+
+                const ctrl2 = new TikZCoordinate(c2x, c2y, this.generateCoordName());
+                ctrl2.showPoint = false;
+                this.addObject(ctrl2);
+
+                // Create the bezier curve
+                const bezier = new TikZBezier(this.tempPoints[0], ctrl1.name, ctrl2.name, this.tempPoints[1]);
+                this.addObject(bezier);
+                this.selectedObjects = [bezier];
+                this.tempPoints = [];
+                this.switchToSelectMode();
+                this.updatePropertiesPanel();
+                this.updateObjectList();
+                this.updateUndoRedoButtons();
+            }
         }
 
         this.render();
@@ -3533,6 +3646,7 @@ class TikZDrawApp {
             );
             this.addObject(grid);
             this.selectedObjects = [grid];
+            this.switchToSelectMode();
             this.tempPoints = [];
             this.updatePropertiesPanel();
             this.updateObjectList();
@@ -3554,7 +3668,7 @@ class TikZDrawApp {
             'rect': 'Click two opposite corners',
             'label': 'Click near a point to add a label',
             'path': 'Click points, click first point to close',
-            'bezier': 'Click start, control point, then end',
+            'bezier': 'Click start point, then end point. Drag control points to shape curve.',
             'grid': 'Click two corners for grid area',
             'image': 'Click to place image anchor point'
         };
@@ -3759,6 +3873,7 @@ class TikZDrawApp {
         const p2 = this.worldToScreen(to.x, to.y);
 
         ctx.strokeStyle = this.getColor(seg.color);
+        ctx.fillStyle = this.getColor(seg.color);
         ctx.lineWidth = this.getThickness(seg.thickness);
         ctx.setLineDash(this.getLineDash(seg.lineStyle));
 
@@ -3767,6 +3882,19 @@ class TikZDrawApp {
         ctx.lineTo(p2.x, p2.y);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Draw arrowheads if specified
+        if (seg.arrowEnd && seg.arrowEnd !== 'none') {
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const arrowSize = 10 * (seg.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
+            const arrows = this.parseArrowSpec(seg.arrowEnd);
+            if (arrows.end) {
+                this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
+            }
+            if (arrows.start) {
+                this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize);
+            }
+        }
 
         // Draw embedded nodes AFTER the line
         // Calculate line angle for sloped labels (in screen coordinates, Y is inverted)
@@ -3782,6 +3910,13 @@ class TikZDrawApp {
             const angle = node.sloped ? lineAngle : (node.rotation || 0) * Math.PI / 180;
             this.drawLabel(node, nx, ny, angle);
         }
+    }
+
+    parseArrowSpec(arrowEnd) {
+        // Parse arrow specification to determine start/end arrows
+        const hasEnd = arrowEnd.endsWith('Stealth') || arrowEnd.endsWith('latex') || arrowEnd.endsWith('>');
+        const hasStart = arrowEnd.startsWith('Stealth') || arrowEnd.startsWith('latex') || arrowEnd.startsWith('<');
+        return { start: hasStart, end: hasEnd };
     }
 
     getLineDash(style) {
@@ -4079,23 +4214,47 @@ class TikZDrawApp {
     drawArc(arc) {
         const center = this.getCoordByName(arc.center);
         if (!center) return;
-        
+
         const ctx = this.ctx;
         const pos = this.worldToScreen(center.x, center.y);
         const radius = arc.radius * this.zoom;
-        
+
         ctx.strokeStyle = this.getColor(arc.color);
+        ctx.fillStyle = this.getColor(arc.color);
         ctx.lineWidth = this.getThickness(arc.thickness);
         ctx.setLineDash(this.getLineDash(arc.lineStyle));
-        
+
         // Convert angles (canvas y is inverted)
         const startRad = -arc.startAngle * Math.PI / 180;
         const endRad = -arc.endAngle * Math.PI / 180;
-        
+
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, radius, startRad, endRad, true);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Draw arrowheads if specified
+        if (arc.arrowEnd && arc.arrowEnd !== 'none') {
+            const arrowSize = 10 * (arc.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
+            const arrows = this.parseArrowSpec(arc.arrowEnd);
+
+            // Calculate positions and tangent angles at arc endpoints
+            const startX = pos.x + radius * Math.cos(startRad);
+            const startY = pos.y + radius * Math.sin(startRad);
+            const endX = pos.x + radius * Math.cos(endRad);
+            const endY = pos.y + radius * Math.sin(endRad);
+
+            // Tangent angle is perpendicular to radius (90 degrees offset)
+            // For clockwise arc (true), start tangent points "backward" and end tangent points "forward"
+            if (arrows.end) {
+                const endTangent = endRad + Math.PI / 2; // Tangent at end, pointing in arc direction
+                this.drawArrowhead(endX, endY, endTangent, arrowSize);
+            }
+            if (arrows.start) {
+                const startTangent = startRad - Math.PI / 2; // Tangent at start, pointing opposite
+                this.drawArrowhead(startX, startY, startTangent, arrowSize);
+            }
+        }
     }
     
     drawRectangle(rect) {
@@ -4247,43 +4406,81 @@ class TikZDrawApp {
     
     drawBezier(bezier) {
         const from = this.getCoordByName(bezier.from);
-        const ctrl = this.getCoordByName(bezier.control);
+        const ctrl1 = this.getCoordByName(bezier.control1);
+        const ctrl2 = this.getCoordByName(bezier.control2);
         const to = this.getCoordByName(bezier.to);
-        if (!from || !ctrl || !to) return;
-        
+        if (!from || !ctrl1 || !ctrl2 || !to) return;
+
         const ctx = this.ctx;
         const p1 = this.worldToScreen(from.x, from.y);
-        const pc = this.worldToScreen(ctrl.x, ctrl.y);
+        const pc1 = this.worldToScreen(ctrl1.x, ctrl1.y);
+        const pc2 = this.worldToScreen(ctrl2.x, ctrl2.y);
         const p2 = this.worldToScreen(to.x, to.y);
-        
+
         ctx.strokeStyle = this.getColor(bezier.color);
+        ctx.fillStyle = this.getColor(bezier.color);
         ctx.lineWidth = this.getThickness(bezier.thickness);
         ctx.setLineDash(this.getLineDash(bezier.lineStyle));
-        
-        // Use cubic bezier with same control point twice to match TikZ behavior
+
+        // Draw cubic bezier with two control points
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
-        ctx.bezierCurveTo(pc.x, pc.y, pc.x, pc.y, p2.x, p2.y);
+        ctx.bezierCurveTo(pc1.x, pc1.y, pc2.x, pc2.y, p2.x, p2.y);
         ctx.stroke();
         ctx.setLineDash([]);
-        
-        // Draw control handle if selected
+
+        // Draw arrowheads if specified
+        if (bezier.arrowEnd && bezier.arrowEnd !== 'none') {
+            const arrowSize = 10 * (bezier.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
+            const arrows = this.parseArrowSpec(bezier.arrowEnd);
+
+            // Calculate tangent angles at endpoints
+            // At start: tangent direction is towards control1
+            const startAngle = Math.atan2(pc1.y - p1.y, pc1.x - p1.x);
+            // At end: tangent direction is from control2 towards end
+            const endAngle = Math.atan2(p2.y - pc2.y, p2.x - pc2.x);
+
+            if (arrows.end) {
+                this.drawArrowhead(p2.x, p2.y, endAngle, arrowSize);
+            }
+            if (arrows.start) {
+                this.drawArrowhead(p1.x, p1.y, startAngle + Math.PI, arrowSize);
+            }
+        }
+
+        // Draw control handles if selected
         if (this.selectedObjects.length === 1 && this.selectedObjects[0] === bezier) {
             ctx.strokeStyle = '#666';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
+            // Line from start to control1
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(pc.x, pc.y);
+            ctx.lineTo(pc1.x, pc1.y);
+            ctx.stroke();
+            // Line from control2 to end
+            ctx.beginPath();
+            ctx.moveTo(pc2.x, pc2.y);
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
+            // Line between control points
+            ctx.strokeStyle = '#999';
+            ctx.beginPath();
+            ctx.moveTo(pc1.x, pc1.y);
+            ctx.lineTo(pc2.x, pc2.y);
+            ctx.stroke();
             ctx.setLineDash([]);
-            
-            // Control point marker
+
+            // Control point 1 marker
             ctx.strokeStyle = this.getColor(bezier.color);
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(pc.x, pc.y, 6, 0, Math.PI * 2);
+            ctx.arc(pc1.x, pc1.y, 6, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Control point 2 marker
+            ctx.beginPath();
+            ctx.arc(pc2.x, pc2.y, 6, 0, Math.PI * 2);
             ctx.stroke();
         }
     }
@@ -4579,15 +4776,17 @@ class TikZDrawApp {
         }
         else if (obj instanceof TikZBezier) {
             const from = this.getCoordByName(obj.from);
-            const control = this.getCoordByName(obj.control);
+            const ctrl1 = this.getCoordByName(obj.control1);
+            const ctrl2 = this.getCoordByName(obj.control2);
             const to = this.getCoordByName(obj.to);
-            if (from && control && to) {
+            if (from && ctrl1 && ctrl2 && to) {
                 const p1 = this.worldToScreen(from.x, from.y);
-                const cp = this.worldToScreen(control.x, control.y);
+                const pc1 = this.worldToScreen(ctrl1.x, ctrl1.y);
+                const pc2 = this.worldToScreen(ctrl2.x, ctrl2.y);
                 const p2 = this.worldToScreen(to.x, to.y);
                 ctx.beginPath();
                 ctx.moveTo(p1.x, p1.y);
-                ctx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+                ctx.bezierCurveTo(pc1.x, pc1.y, pc2.x, pc2.y, p2.x, p2.y);
                 ctx.stroke();
             }
         }
@@ -4956,29 +5155,16 @@ class TikZDrawApp {
             }
         }
         else if (this.currentTool === 'bezier') {
-            if (this.tempPoints.length >= 1) {
+            if (this.tempPoints.length === 1) {
+                // Drawing line from start to end point preview
                 const from = this.getCoordByName(this.tempPoints[0]);
                 if (from) {
                     const p1 = this.worldToScreen(from.x, from.y);
                     const p2 = this.worldToScreen(snapped.x, snapped.y);
-                    
-                    if (this.tempPoints.length === 1) {
-                        // Drawing to control point
-                        ctx.beginPath();
-                        ctx.moveTo(p1.x, p1.y);
-                        ctx.lineTo(p2.x, p2.y);
-                        ctx.stroke();
-                    } else {
-                        // Drawing curve to end point - use cubic bezier
-                        const ctrl = this.getCoordByName(this.tempPoints[1]);
-                        if (ctrl) {
-                            const pc = this.worldToScreen(ctrl.x, ctrl.y);
-                            ctx.beginPath();
-                            ctx.moveTo(p1.x, p1.y);
-                            ctx.bezierCurveTo(pc.x, pc.y, pc.x, pc.y, p2.x, p2.y);
-                            ctx.stroke();
-                        }
-                    }
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
                 }
             }
         }
@@ -5211,11 +5397,36 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderLineStyleSelect(seg.lineStyle, 'lineStyle')}</div>
             </div>
             <div class="property-row">
+                <span class="property-label">Arrow:</span>
+                <div class="property-input">${this.renderArrowSelect(seg.arrowEnd || 'none', 'arrowEnd')}</div>
+            </div>
+            <div class="property-row" ${(seg.arrowEnd && seg.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
+                <span class="property-label">Arrow Size:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${seg.arrowSize || 1.0}"></div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Labels:</span>
                 <div class="property-input">
                     <button class="btn" onclick="app.addEmbeddedNode()" style="width:100%;">+ Add Label</button>
                 </div>
             </div>
+        `;
+    }
+
+    renderArrowSelect(value, prop) {
+        return `
+            <select data-prop="${prop}">
+                <option value="none" ${value === 'none' ? 'selected' : ''}>None</option>
+                <option value="-Stealth" ${value === '-Stealth' ? 'selected' : ''}>→ End</option>
+                <option value="Stealth-" ${value === 'Stealth-' ? 'selected' : ''}>← Start</option>
+                <option value="Stealth-Stealth" ${value === 'Stealth-Stealth' ? 'selected' : ''}>↔ Both</option>
+                <option value="->" ${value === '->' ? 'selected' : ''}>-> End (simple)</option>
+                <option value="<-" ${value === '<-' ? 'selected' : ''}>← Start (simple)</option>
+                <option value="<->" ${value === '<->' ? 'selected' : ''}>↔ Both (simple)</option>
+                <option value="-latex" ${value === '-latex' ? 'selected' : ''}>-latex End</option>
+                <option value="latex-" ${value === 'latex-' ? 'selected' : ''}>latex- Start</option>
+                <option value="latex-latex" ${value === 'latex-latex' ? 'selected' : ''}>latex-latex Both</option>
+            </select>
         `;
     }
     
@@ -5345,6 +5556,14 @@ class TikZDrawApp {
                 <span class="property-label">Thickness:</span>
                 <div class="property-input">${this.renderThicknessSelect(arc.thickness, 'thickness')}</div>
             </div>
+            <div class="property-row">
+                <span class="property-label">Arrow:</span>
+                <div class="property-input">${this.renderArrowSelect(arc.arrowEnd || 'none', 'arrowEnd')}</div>
+            </div>
+            <div class="property-row" ${(arc.arrowEnd && arc.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
+                <span class="property-label">Arrow Size:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${arc.arrowSize || 1.0}"></div>
+            </div>
         `;
     }
     
@@ -5446,8 +5665,12 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderCoordSelect(bezier.from, 'from')}</div>
             </div>
             <div class="property-row">
-                <span class="property-label">Control:</span>
-                <div class="property-input">${this.renderCoordSelect(bezier.control, 'control')}</div>
+                <span class="property-label">Control 1:</span>
+                <div class="property-input">${this.renderCoordSelect(bezier.control1, 'control1')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Control 2:</span>
+                <div class="property-input">${this.renderCoordSelect(bezier.control2, 'control2')}</div>
             </div>
             <div class="property-row">
                 <span class="property-label">To:</span>
@@ -5460,6 +5683,14 @@ class TikZDrawApp {
             <div class="property-row">
                 <span class="property-label">Thickness:</span>
                 <div class="property-input">${this.renderThicknessSelect(bezier.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Arrow:</span>
+                <div class="property-input">${this.renderArrowSelect(bezier.arrowEnd || 'none', 'arrowEnd')}</div>
+            </div>
+            <div class="property-row" ${(bezier.arrowEnd && bezier.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
+                <span class="property-label">Arrow Size:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${bezier.arrowSize || 1.0}"></div>
             </div>
         `;
     }
@@ -5806,7 +6037,8 @@ class TikZDrawApp {
                     if (obj.from === oldName) obj.from = newName;
                     if (obj.to === oldName) obj.to = newName;
                     if (obj.center === oldName) obj.center = newName;
-                    if (obj.control === oldName) obj.control = newName;
+                    if (obj.control1 === oldName) obj.control1 = newName;
+                    if (obj.control2 === oldName) obj.control2 = newName;
                     if (obj.at === oldName) obj.at = newName;
                     if (obj.points) {
                         obj.points = obj.points.map(p => p === oldName ? newName : p);
@@ -6747,6 +6979,8 @@ class TikZDrawApp {
             data.color = obj.color;
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
+            data.arrowEnd = obj.arrowEnd;
+            data.arrowSize = obj.arrowSize;
             data.nodes = obj.nodes.map(n => ({
                 text: n.text,
                 position: n.position,
@@ -6797,6 +7031,8 @@ class TikZDrawApp {
             data.color = obj.color;
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
+            data.arrowEnd = obj.arrowEnd;
+            data.arrowSize = obj.arrowSize;
             data.expanded = obj.expanded;
             data.name = obj.name;
         } else if (obj instanceof TikZRectangle) {
@@ -6837,11 +7073,14 @@ class TikZDrawApp {
             data.name = obj.name;
         } else if (obj instanceof TikZBezier) {
             data.from = obj.from;
-            data.control = obj.control;
+            data.control1 = obj.control1;
+            data.control2 = obj.control2;
             data.to = obj.to;
             data.color = obj.color;
             data.thickness = obj.thickness;
             data.lineStyle = obj.lineStyle;
+            data.arrowEnd = obj.arrowEnd;
+            data.arrowSize = obj.arrowSize;
             data.expanded = obj.expanded;
             data.name = obj.name;
         } else if (obj instanceof TikZLabel) {
@@ -6975,6 +7214,8 @@ class TikZDrawApp {
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
+                    obj.arrowEnd = data.arrowEnd || 'none';
+                    obj.arrowSize = data.arrowSize || 1.0;
                     if (data.nodes) {
                         obj.nodes = data.nodes.map(n => {
                             const node = new TikZEmbeddedNode(n.text, n.position, n.anchor);
@@ -6988,11 +7229,11 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZVector':
-                    obj = new TikZVector(data.from, data.to);
+                    // Convert old TikZVector to TikZSegment with arrows
+                    obj = new TikZSegment(data.from, data.to);
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
-                    obj.arrowType = data.arrowType || 'Stealth';
                     obj.arrowEnd = data.arrowEnd || '-Stealth';
                     obj.arrowSize = data.arrowSize || 1.0;
                     if (data.nodes) {
@@ -7022,6 +7263,8 @@ class TikZDrawApp {
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
+                    obj.arrowEnd = data.arrowEnd || 'none';
+                    obj.arrowSize = data.arrowSize || 1.0;
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZRectangle':
@@ -7071,10 +7314,21 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZBezier':
-                    obj = new TikZBezier(data.from, data.control, data.to);
+                    // Support both old format (single control) and new format (two controls)
+                    if (data.control1 && data.control2) {
+                        obj = new TikZBezier(data.from, data.control1, data.control2, data.to);
+                    } else if (data.control) {
+                        // Old format: duplicate the single control point
+                        obj = new TikZBezier(data.from, data.control, data.control, data.to);
+                    } else {
+                        console.log('Invalid bezier data');
+                        return null;
+                    }
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
+                    obj.arrowEnd = data.arrowEnd || 'none';
+                    obj.arrowSize = data.arrowSize || 1.0;
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZLabel':
