@@ -1651,7 +1651,13 @@ class TikZDrawApp {
             const contourInfo = this.parseContour(text);
 
             // For rendering, use the inner text (strip \contour{}{} wrapper)
-            const renderText = contourInfo.innerText;
+            let renderText = contourInfo.innerText;
+
+            // Replace custom colors
+            for (const [name, hex] of Object.entries(this.customColors)) {
+                renderText = renderText.replaceAll(`\{${name}\}`, `\{${hex}\}`);
+            }
+
             // Create a temporary container
             const container = document.createElement('div');
             container.style.position = 'absolute';
