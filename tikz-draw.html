@@ -674,8 +674,9 @@
                     Objects
                     <span style="font-weight:normal;text-transform:none;font-size:10px;color:#eee;">drag to reorder</span>
                 </div>
-                <div class="panel-header">
-                  <label style="margin-left:10px;font-weight:normal;text-transform:none"><input type="checkbox" id="hideInvisiblePoints" name="hideInvisiblePoints" value="1" onclick="javascript:app.updateObjectList();"/> Hide Invisible Points</label>
+                <div class="panel-header" style="display:flex;gap:12px;padding:4px 10px;">
+                  <label style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" id="hideInvisiblePoints" name="hideInvisiblePoints" value="1" onclick="javascript:app.updateObjectList();"/> Hide Invisible Points</label>
+                  <label style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" id="removeUnusedPoints" name="removeUnusedPoints" value="1" onclick="javascript:app.updateObjectList();"/> Remove Unused</label>
                 </div>
                 <div class="object-list" id="objectList"></div>
             </div>
@@ -1500,6 +1501,7 @@ class TikZDrawApp {
         // Key state
         this.ctrlKey = false;
         this.shiftKey = false;
+        this.inNudge = false;
 
         // View state
         this.viewX = 0;
@@ -1939,7 +1941,7 @@ class TikZDrawApp {
         this.saveState();
 
         // Keep coordinates grouped at the top of the list
-        if (obj instanceof TikZCoordinate) {
+        if (obj instanceof TikZCoordinate && obj.showPoint === false && (!obj.label || obj.label.length == 0)) {
             // Find the last coordinate index
             let lastCoordIndex = -1;
             for (let i = 0; i < this.objects.length; i++) {
@@ -2045,15 +2047,20 @@ class TikZDrawApp {
             }
         }
 
-        // Check in reverse order (topmost first)
+        // Priority check: check all TikZCoordinates first so endpoints are easier to select
         for (let i = this.objects.length - 1; i >= 0; i--) {
             const obj = this.objects[i];
-            
             if (obj instanceof TikZCoordinate) {
                 const dist = Math.hypot(obj.x - wx, obj.y - wy);
-                if (dist < 0.2) return obj;
+                if (dist < 0.25) return obj;
             }
-            else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+        }
+
+        // Check other objects in reverse order (topmost first)
+        for (let i = this.objects.length - 1; i >= 0; i--) {
+            const obj = this.objects[i];
+
+            if (obj instanceof TikZSegment || obj instanceof TikZVector) {
                 const from = this.getCoordByName(obj.from);
                 const to = this.getCoordByName(obj.to);
                 if (from && to) {
@@ -2394,6 +2401,11 @@ class TikZDrawApp {
         // They are handled specially in the move handler
         if (obj instanceof TikZRectangle || obj instanceof TikZGrid) {
             return [];
+        }
+
+        // TikZCoordinate: move it directly - this naturally moves all objects referencing it
+        if (obj instanceof TikZCoordinate) {
+            return [obj];
         }
 
         const coordNames = this.getObjectCoordinates(obj);
@@ -2867,7 +2879,10 @@ class TikZDrawApp {
             }
 
             // Save state for undo
-            this.saveState();
+            if (! this.inNudge) {
+                this.saveState();
+                this.inNudge = true;
+            }
 
             // Collect all coordinates to nudge (avoiding duplicates)
             const coordsToNudge = new Set();
@@ -5563,6 +5578,10 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderThicknessSelect(arc.thickness, 'thickness')}</div>
             </div>
             <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(arc.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Arrow:</span>
                 <div class="property-input">${this.renderArrowSelect(arc.arrowEnd || 'none', 'arrowEnd')}</div>
             </div>
@@ -5572,7 +5591,7 @@ class TikZDrawApp {
             </div>
         `;
     }
-    
+
     renderRectProperties(rect) {
         return `
             <div class="property-row">
@@ -5646,6 +5665,10 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderThicknessSelect(path.thickness, 'thickness')}</div>
             </div>
             <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(path.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Fill:</span>
                 <div class="property-input">${this.renderColorSelect(path.fill, 'fill')}</div>
             </div>
@@ -5691,6 +5714,10 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderThicknessSelect(bezier.thickness, 'thickness')}</div>
             </div>
             <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(bezier.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Arrow:</span>
                 <div class="property-input">${this.renderArrowSelect(bezier.arrowEnd || 'none', 'arrowEnd')}</div>
             </div>
@@ -5700,7 +5727,7 @@ class TikZDrawApp {
             </div>
         `;
     }
-    
+
     renderLabelProperties(label) {
         return `
             <div class="property-row">
@@ -6257,22 +6284,74 @@ class TikZDrawApp {
     updateObjectList() {
         const list = document.getElementById('objectList');
         const hideInvisiblePoints = document.getElementById('hideInvisiblePoints').checked;
+        const removeUnusedPoints = document.getElementById('removeUnusedPoints').checked;
         let html = '';
         let lastObjectSelected = null;
-        
-        for (const obj of this.objects) {
+
+        // Remove unused coordinates if checkbox is checked
+        if (removeUnusedPoints) {
+            // Build set of used coordinate names
+            const usedCoords = new Set();
+            for (const obj of this.objects) {
+                if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+                    usedCoords.add(obj.from);
+                    usedCoords.add(obj.to);
+                } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
+                    usedCoords.add(obj.center);
+                } else if (obj instanceof TikZPath) {
+                    obj.points.forEach(p => usedCoords.add(p));
+                } else if (obj instanceof TikZBezier) {
+                    usedCoords.add(obj.from);
+                    usedCoords.add(obj.control1);
+                    usedCoords.add(obj.control2);
+                    usedCoords.add(obj.to);
+                } else if (obj instanceof TikZLabel || obj instanceof TikZImage) {
+                    usedCoords.add(obj.at);
+                }
+            }
+            // Remove unused coordinates (not visible, no label, not referenced)
+            const toRemove = this.objects.filter(obj =>
+                obj instanceof TikZCoordinate && !obj.showPoint && obj.label.length == 0 && !usedCoords.has(obj.name)
+            );
+            if (toRemove.length > 0) {
+                this.saveState();
+                for (const obj of toRemove) {
+                    const idx = this.objects.indexOf(obj);
+                    if (idx !== -1) {
+                        this.objects.splice(idx, 1);
+                    }
+                    // Remove from selection if selected
+                    const selIdx = this.selectedObjects.indexOf(obj);
+                    if (selIdx !== -1) {
+                        this.selectedObjects.splice(selIdx, 1);
+                    }
+                }
+                // Uncheck the checkbox after removal
+                document.getElementById('removeUnusedPoints').checked = false;
+                this.render();
+            }
+        }
+
+        // Sort objects for display: invisible coordinates first, then others in original order
+        // A coordinate is "visible" if showPoint is true OR it has a label
+        const isVisibleOrLabeled = (o) => o.showPoint === true || (o.label && o.label.length > 0);
+        const invisibleCoords = this.objects.filter(o => o instanceof TikZCoordinate && !isVisibleOrLabeled(o));
+        const otherObjects = this.objects.filter(o => !(o instanceof TikZCoordinate) || isVisibleOrLabeled(o));
+        const displayOrder = [...invisibleCoords, ...otherObjects];
+
+        for (const obj of displayOrder) {
             const isSelected = this.selectedObjects.includes(obj);
             const icon = this.getObjectIcon(obj);
             const name = this.getObjectDisplayName(obj);
             const hasSubObjects = typeof obj.getSubObjects === 'function' && obj.getSubObjects().length > 0;
-            
+
             let hide = false;
             if (hideInvisiblePoints && obj instanceof TikZCoordinate && !obj.showPoint && obj.label.length == 0) {
                 hide = true;
             }
 
             if (!hide) {
-                html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}" 
+                html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}"
                              data-id="${obj.id}" draggable="true">
                     <span class="drag-handle">⠿</span>
                     <span class="expand-btn" onclick="event.stopPropagation(); app.toggleExpand('${obj.id}')">${hasSubObjects ? (obj.expanded ? '▼' : '◢') : ''}</span>
@@ -7400,6 +7479,7 @@ class TikZDrawApp {
 
         this.undoStack.push(state);
         this.redoStack = []; // Clear redo stack when new action taken
+        this.inNudge = false; // Keeps from saving sequential nudges
 
         this.updateUndoRedoButtons();
     }
