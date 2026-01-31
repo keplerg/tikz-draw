@@ -2555,6 +2555,9 @@ class TikZDrawApp {
         const world = this.screenToWorld(sx, sy);
         const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
 
+        // Store last snapped position for temp geometry redraw
+        this.lastSnapped = snapped;
+
         // Update cursor position display
         document.getElementById('cursorPos').textContent = `(${snapped.x.toFixed(2)}, ${snapped.y.toFixed(2)})`;
 
@@ -3742,6 +3745,12 @@ class TikZDrawApp {
             // Draw box selection rectangle
             if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
                 this.drawSelectionBox(this.boxSelectStart, this.boxSelectEnd);
+            }
+
+            // Draw temp geometry for in-progress tool operations
+            // This ensures temp lines are visible even after async re-renders (e.g., LaTeX caching)
+            if (this.tempPoints.length > 0 && this.lastSnapped) {
+                this.drawTempGeometry(this.lastSnapped);
             }
         } finally {
             this.isRendering = false;
@@ -6228,7 +6237,8 @@ class TikZDrawApp {
     }
     
     closeNodeEditor() {
-        if (this.editingNode.text.length == 0) {
+        // Remove empty labels when closing
+        if (this.editingNode && this.editingNodeParent && this.editingNode.text.length == 0) {
             const idx = this.editingNodeParent.nodes.indexOf(this.editingNode);
             if (idx >= 0) {
                 this.editingNodeParent.nodes.splice(idx, 1);
@@ -6314,6 +6324,12 @@ class TikZDrawApp {
                     usedCoords.add(obj.to);
                 } else if (obj instanceof TikZLabel || obj instanceof TikZImage) {
                     usedCoords.add(obj.at);
+                }
+            }
+            // Also preserve coordinates being used in temporary path/line creation
+            for (const name of this.tempPoints) {
+                if (typeof name === 'string') {
+                    usedCoords.add(name);
                 }
             }
             // Remove unused coordinates (not visible, no label, not referenced)
