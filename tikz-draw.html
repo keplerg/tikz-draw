@@ -1543,6 +1543,7 @@ class TikZDrawApp {
         // Multi-select drag-to-select state
         this.isBoxSelecting = false;
         this.boxSelectStart = null;
+        this.boxSelectEnd = null;
 
         // Move tool state
         this.isMoving = false;
@@ -2575,8 +2576,8 @@ class TikZDrawApp {
             }
 
             if (this.isBoxSelecting) {
+                this.boxSelectEnd = world;
                 this.render();
-                this.drawSelectionBox(this.boxSelectStart, world);
                 return;
             }
         }
@@ -2750,6 +2751,7 @@ class TikZDrawApp {
             }
 
             this.boxSelectStart = null;
+            this.boxSelectEnd = null;
             this.updatePropertiesPanel();
             this.updateObjectList();
             this.updateUndoRedoButtons();
@@ -3735,6 +3737,11 @@ class TikZDrawApp {
             // Draw rotation visual feedback
             if (this.isRotating && this.rotateCenter) {
                 this.drawRotationFeedback();
+            }
+
+            // Draw box selection rectangle
+            if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
+                this.drawSelectionBox(this.boxSelectStart, this.boxSelectEnd);
             }
         } finally {
             this.isRendering = false;
