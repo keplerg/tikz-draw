@@ -1068,9 +1068,10 @@ class TikZVector extends TikZObject {
 }
 
 class TikZCircle extends TikZObject {
-    constructor(centerCoord, radius) {
+    constructor(centerCoord, radius, center2Coord = null) {
         super('circle');
         this.center = centerCoord;
+        this.center2 = center2Coord || centerCoord; // Second center for ellipse (same as center for circle)
         this.radius = radius;
         this.color = 'black';
         this.thickness = 'thin';
@@ -1080,7 +1081,44 @@ class TikZCircle extends TikZObject {
         this.pattern = 'none';
         this.name = this.id.replace('circle_', 'C');
     }
-    
+
+    // Check if this is an ellipse (centers are different coordinates)
+    isEllipse(getCoordByName) {
+        if (this.center === this.center2) return false;
+        const c1 = getCoordByName(this.center);
+        const c2 = getCoordByName(this.center2);
+        if (!c1 || !c2) return false;
+        const dist = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+        return dist > 0.001; // Small tolerance
+    }
+
+    // Get ellipse parameters: center (midpoint), semi-major axis a, semi-minor axis b, rotation angle
+    getEllipseParams(getCoordByName) {
+        const c1 = getCoordByName(this.center);
+        const c2 = getCoordByName(this.center2);
+        if (!c1 || !c2) return null;
+
+        // Distance between foci
+        const fociDist = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+        const c = fociDist / 2; // Half the distance between foci
+
+        // Semi-major axis a = radius (we keep the original radius as the semi-major axis)
+        const a = this.radius;
+
+        // Semi-minor axis: b = sqrt(a² - c²)
+        // If c > a, the ellipse is not valid, so we clamp
+        const b = c >= a ? 0.1 : Math.sqrt(a * a - c * c);
+
+        // Center of ellipse = midpoint of foci
+        const cx = (c1.x + c2.x) / 2;
+        const cy = (c1.y + c2.y) / 2;
+
+        // Rotation angle (angle of the line connecting the foci)
+        const rotation = Math.atan2(c2.y - c1.y, c2.x - c1.x);
+
+        return { cx, cy, a, b, rotation, c };
+    }
+
     toTikZ() {
         let opts = [];
         if (this.color !== 'black') opts.push(this.color);
@@ -1104,7 +1142,60 @@ class TikZCircle extends TikZObject {
         }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
-        return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+
+        // Check if this is an ellipse - we need access to app.getCoordByName
+        // If center and center2 are the same name, it's definitely a circle
+        if (this.center === this.center2) {
+            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+        }
+
+        // For ellipse output, we need the actual coordinates
+        // This will be handled specially in the export function where we have access to getCoordByName
+        // Mark it for ellipse export by including both centers
+        return `  % Ellipse with foci at (${this.center}) and (${this.center2}), a=${this.radius.toFixed(2)}\n  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)}); % TODO: Use ellipse syntax`;
+    }
+
+    // Generate TikZ with access to coordinate lookup
+    toTikZWithCoords(getCoordByName) {
+        let opts = [];
+        if (this.color !== 'black') opts.push(this.color);
+        if (this.thickness !== 'thin') opts.push(this.thickness);
+        if (this.lineStyle === 'dashed') opts.push('dashed');
+        if (this.lineStyle === 'dotted') opts.push('dotted');
+
+        let cmd = '\\draw';
+        if (this.fill !== undefined && this.fill !== 'none') {
+            if (this.pattern && this.pattern !== 'none') {
+                opts.push(`pattern color=${this.fill}`);
+            } else {
+                opts.push(`fill=${this.fill}`);
+            }
+            if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+        }
+
+        if (this.pattern && this.pattern !== 'none') {
+            opts.push(`pattern=${this.pattern}`);
+        }
+
+        let optStr = opts.length ? `[${opts.join(', ')}]` : '';
+
+        if (!this.isEllipse(getCoordByName)) {
+            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+        }
+
+        // Generate ellipse TikZ code
+        const params = this.getEllipseParams(getCoordByName);
+        if (!params) {
+            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+        }
+
+        const rotationDeg = params.rotation * 180 / Math.PI;
+        if (Math.abs(rotationDeg) > 0.1) {
+            opts.push(`rotate=${rotationDeg.toFixed(1)}`);
+            optStr = opts.length ? `[${opts.join(', ')}]` : '';
+        }
+
+        return `  ${cmd}${optStr} (${params.cx.toFixed(2)}, ${params.cy.toFixed(2)}) ellipse (${params.a.toFixed(2)} and ${params.b.toFixed(2)});`;
     }
 }
 
@@ -2070,11 +2161,30 @@ class TikZDrawApp {
                 }
             }
             else if (obj instanceof TikZCircle) {
-                const center = this.getCoordByName(obj.center);
-                if (center) {
-                    const dist = Math.hypot(wx - center.x, wy - center.y);
-                    // Click anywhere inside the circle (not just on edge)
-                    if (dist <= obj.radius) return obj;
+                const isEllipse = obj.isEllipse(this.getCoordByName.bind(this));
+                if (isEllipse) {
+                    // Check if point is inside ellipse
+                    const params = obj.getEllipseParams(this.getCoordByName.bind(this));
+                    if (params) {
+                        // Transform point to ellipse's local coordinate system
+                        const dx = wx - params.cx;
+                        const dy = wy - params.cy;
+                        // Rotate point by -rotation to align with ellipse axes
+                        const cos = Math.cos(-params.rotation);
+                        const sin = Math.sin(-params.rotation);
+                        const localX = dx * cos - dy * sin;
+                        const localY = dx * sin + dy * cos;
+                        // Check if inside using ellipse equation: (x/a)² + (y/b)² <= 1
+                        const normalized = (localX * localX) / (params.a * params.a) + (localY * localY) / (params.b * params.b);
+                        if (normalized <= 1) return obj;
+                    }
+                } else {
+                    const center = this.getCoordByName(obj.center);
+                    if (center) {
+                        const dist = Math.hypot(wx - center.x, wy - center.y);
+                        // Click anywhere inside the circle (not just on edge)
+                        if (dist <= obj.radius) return obj;
+                    }
                 }
             }
             else if (obj instanceof TikZArc) {
@@ -2328,7 +2438,12 @@ class TikZDrawApp {
             coordNames.push(obj.name);
         } else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
             coordNames.push(obj.from, obj.to);
-        } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
+        } else if (obj instanceof TikZCircle) {
+            coordNames.push(obj.center);
+            if (obj.center2 && obj.center2 !== obj.center) {
+                coordNames.push(obj.center2);
+            }
+        } else if (obj instanceof TikZArc) {
             coordNames.push(obj.center);
         } else if (obj instanceof TikZPath) {
             coordNames.push(...obj.points);
@@ -2378,7 +2493,10 @@ class TikZDrawApp {
         if (obj instanceof TikZSegment || obj instanceof TikZVector) {
             if (obj.from === oldName) obj.from = newName;
             if (obj.to === oldName) obj.to = newName;
-        } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
+        } else if (obj instanceof TikZCircle) {
+            if (obj.center === oldName) obj.center = newName;
+            if (obj.center2 === oldName) obj.center2 = newName;
+        } else if (obj instanceof TikZArc) {
             if (obj.center === oldName) obj.center = newName;
         } else if (obj instanceof TikZPath) {
             obj.points = obj.points.map(p => p === oldName ? newName : p);
@@ -3384,7 +3502,11 @@ class TikZDrawApp {
             const center = this.tempPoints[0];
             const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
 
-            const circle = new TikZCircle(center.name, Math.max(0.1, radius));
+            // Create a second center point at the same location (for potential ellipse)
+            const center2 = new TikZCoordinate(center.x, center.y, this.generateCoordName());
+            this.addObject(center2);
+
+            const circle = new TikZCircle(center.name, Math.max(0.1, radius), center2.name);
             this.addObject(circle);
             this.selectedObjects = [circle];
             this.tempPoints = [];
@@ -4216,36 +4338,70 @@ class TikZDrawApp {
         if (!center) return;
 
         const ctx = this.ctx;
-        const pos = this.worldToScreen(center.x, center.y);
-        const radius = circle.radius * this.zoom;
 
-        if (circle.fill !== 'none') {
-            // Use pattern if specified, otherwise use solid fill
-            if (circle.pattern && circle.pattern !== 'none') {
-                const pattern = this.createCanvasPattern(circle.pattern, this.getColor(circle.fill));
-                if (pattern) {
-                    ctx.fillStyle = pattern;
+        // Check if this is an ellipse
+        const isEllipse = circle.isEllipse(this.getCoordByName.bind(this));
+
+        if (isEllipse) {
+            const params = circle.getEllipseParams(this.getCoordByName.bind(this));
+            if (!params) return;
+
+            const centerPos = this.worldToScreen(params.cx, params.cy);
+            const a = params.a * this.zoom; // Semi-major axis in screen coords
+            const b = params.b * this.zoom; // Semi-minor axis in screen coords
+            // Note: canvas y is inverted, so negate rotation
+            const rotation = -params.rotation;
+
+            if (circle.fill !== 'none') {
+                if (circle.pattern && circle.pattern !== 'none') {
+                    const pattern = this.createCanvasPattern(circle.pattern, this.getColor(circle.fill));
+                    ctx.fillStyle = pattern || this.getColor(circle.fill);
                 } else {
                     ctx.fillStyle = this.getColor(circle.fill);
                 }
-            } else {
-                ctx.fillStyle = this.getColor(circle.fill);
+                ctx.globalAlpha = circle.fillOpacity;
+                ctx.beginPath();
+                ctx.ellipse(centerPos.x, centerPos.y, a, b, rotation, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
             }
-            ctx.globalAlpha = circle.fillOpacity;
+
+            ctx.strokeStyle = this.getColor(circle.color);
+            ctx.lineWidth = this.getThickness(circle.thickness);
+            ctx.setLineDash(this.getLineDash(circle.lineStyle));
+
+            ctx.beginPath();
+            ctx.ellipse(centerPos.x, centerPos.y, a, b, rotation, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else {
+            // Regular circle
+            const pos = this.worldToScreen(center.x, center.y);
+            const radius = circle.radius * this.zoom;
+
+            if (circle.fill !== 'none') {
+                if (circle.pattern && circle.pattern !== 'none') {
+                    const pattern = this.createCanvasPattern(circle.pattern, this.getColor(circle.fill));
+                    ctx.fillStyle = pattern || this.getColor(circle.fill);
+                } else {
+                    ctx.fillStyle = this.getColor(circle.fill);
+                }
+                ctx.globalAlpha = circle.fillOpacity;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.strokeStyle = this.getColor(circle.color);
+            ctx.lineWidth = this.getThickness(circle.thickness);
+            ctx.setLineDash(this.getLineDash(circle.lineStyle));
+
             ctx.beginPath();
             ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
-
-        ctx.strokeStyle = this.getColor(circle.color);
-        ctx.lineWidth = this.getThickness(circle.thickness);
-        ctx.setLineDash(this.getLineDash(circle.lineStyle));
-
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
     }
     
     drawArc(arc) {
@@ -4749,12 +4905,25 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZCircle) {
-            const center = this.getCoordByName(obj.center);
-            if (center) {
-                const pos = this.worldToScreen(center.x, center.y);
-                ctx.beginPath();
-                ctx.arc(pos.x, pos.y, obj.radius * this.zoom + 4, 0, Math.PI * 2);
-                ctx.stroke();
+            const isEllipse = obj.isEllipse(this.getCoordByName.bind(this));
+            if (isEllipse) {
+                const params = obj.getEllipseParams(this.getCoordByName.bind(this));
+                if (params) {
+                    const centerPos = this.worldToScreen(params.cx, params.cy);
+                    const a = params.a * this.zoom + 4;
+                    const b = params.b * this.zoom + 4;
+                    ctx.beginPath();
+                    ctx.ellipse(centerPos.x, centerPos.y, a, b, -params.rotation, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            } else {
+                const center = this.getCoordByName(obj.center);
+                if (center) {
+                    const pos = this.worldToScreen(center.x, center.y);
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, obj.radius * this.zoom + 4, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
             }
         }
         else if (obj instanceof TikZRectangle) {
@@ -5034,10 +5203,19 @@ class TikZDrawApp {
             }
         }
         else if (obj instanceof TikZCircle) {
-            const center = this.getCoordByName(obj.center);
-            if (center) {
-                // Select if center is in box
-                return center.x >= minX && center.x <= maxX && center.y >= minY && center.y <= maxY;
+            const isEllipse = obj.isEllipse(this.getCoordByName.bind(this));
+            if (isEllipse) {
+                // For ellipse, select if the ellipse center (midpoint of foci) is in box
+                const params = obj.getEllipseParams(this.getCoordByName.bind(this));
+                if (params) {
+                    return params.cx >= minX && params.cx <= maxX && params.cy >= minY && params.cy <= maxY;
+                }
+            } else {
+                const center = this.getCoordByName(obj.center);
+                if (center) {
+                    // Select if center is in box
+                    return center.x >= minX && center.x <= maxX && center.y >= minY && center.y <= maxY;
+                }
             }
         }
         else if (obj instanceof TikZRectangle) {
@@ -5248,11 +5426,17 @@ class TikZDrawApp {
         const obj = this.selectedObjects[0];
         let html = '';
 
+        // Special handling for circles that are ellipses
+        let typeName = TYPE_NAMES[obj.type] || obj.type;
+        if (obj instanceof TikZCircle && obj.isEllipse(this.getCoordByName.bind(this))) {
+            typeName = 'Ellipse';
+        }
+
         html += `<div class="property-row">
             <span class="property-label">Type:</span>
-            <span style="color:#61afef;font-weight:500;">${TYPE_NAMES[obj.type] || obj.type}</span>
+            <span style="color:#61afef;font-weight:500;">${typeName}</span>
         </div>`;
-        
+
         // Type-specific properties
         if (obj instanceof TikZCoordinate) {
             html += this.renderCoordProperties(obj);
@@ -5523,17 +5707,24 @@ class TikZDrawApp {
     }
     
     renderCircleProperties(circle) {
+        const isEllipse = circle.isEllipse(this.getCoordByName.bind(this));
+        const shapeLabel = isEllipse ? 'Ellipse' : 'Circle';
+        const radiusLabel = isEllipse ? 'Semi-major:' : 'Radius:';
+
         return `
             <div class="property-row">
                 <span class="property-label">Name:</span>
                 <div class="property-input"><input type="text" data-prop="name" value="${circle.name}"></div>
             </div>
             <div class="property-row">
-                <span class="property-label">Center:</span>
-                <div class="property-input">${this.renderCoordSelect(circle.center, 'center')}</div>
+                <span class="property-label">Foci:</span>
+                <div class="property-input" style="display:flex;gap:4px;">
+                    ${this.renderCoordSelect(circle.center, 'center')}
+                    ${this.renderCoordSelect(circle.center2, 'center2')}
+                </div>
             </div>
             <div class="property-row">
-                <span class="property-label">Radius:</span>
+                <span class="property-label">${radiusLabel}</span>
                 <div class="property-input"><input type="number" step="0.1" min="0.1" data-prop="radius" value="${circle.radius.toFixed(2)}"></div>
             </div>
             <div class="property-row">
@@ -6418,7 +6609,11 @@ class TikZDrawApp {
         if (obj instanceof TikZCoordinate) return '•';
         if (obj instanceof TikZSegment) return '─';
         if (obj instanceof TikZVector) return '→';
-        if (obj instanceof TikZCircle) return '○';
+        if (obj instanceof TikZCircle) {
+            // Show ellipse icon if it's an ellipse
+            if (obj.isEllipse(this.getCoordByName.bind(this))) return '⬭';
+            return '○';
+        }
         if (obj instanceof TikZArc) return '⌒';
         if (obj instanceof TikZRectangle) return '□';
         if (obj instanceof TikZPath) return '⟋';
@@ -6443,7 +6638,13 @@ class TikZDrawApp {
         if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x.toFixed(2)}, ${obj.y.toFixed(2)})`;
         if (obj instanceof TikZSegment) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
-        if (obj instanceof TikZCircle) return `${obj.name} (${obj.center}, r=${obj.radius.toFixed(2)})`;
+        if (obj instanceof TikZCircle) {
+            const isEllipse = obj.isEllipse(this.getCoordByName.bind(this));
+            if (isEllipse) {
+                return `${obj.name} (ellipse, a=${obj.radius.toFixed(2)})`;
+            }
+            return `${obj.name} (${obj.center}, r=${obj.radius.toFixed(2)})`;
+        }
         if (obj instanceof TikZArc) return `${obj.name} (${obj.center}, ${obj.startAngle.toFixed(1)}°-${obj.endAngle.toFixed(1)}°)`;
         if (obj instanceof TikZRectangle) return `${obj.name} (${obj.xMin},${obj.yMin}) - (${obj.xMax},${obj.yMax})`;
         if (obj instanceof TikZPath) return `${obj.name} (${obj.points.length} points)`;
@@ -6992,7 +7193,12 @@ class TikZDrawApp {
                     lines.push(o.toTikZLabel());
                 }
                 if (!coords.includes(o)) {
-                    lines.push(o.toTikZ());
+                    // Use toTikZWithCoords for circles to handle ellipses properly
+                    if (o instanceof TikZCircle && o.toTikZWithCoords) {
+                        lines.push(o.toTikZWithCoords(this.getCoordByName.bind(this)));
+                    } else {
+                        lines.push(o.toTikZ());
+                    }
                 }
             });
         }
@@ -7122,6 +7328,7 @@ class TikZDrawApp {
             data.name = obj.name;
         } else if (obj instanceof TikZCircle) {
             data.center = obj.center;
+            data.center2 = obj.center2;
             data.radius = obj.radius;
             data.color = obj.color;
             data.thickness = obj.thickness;
@@ -7357,7 +7564,7 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZCircle':
-                    obj = new TikZCircle(data.center, data.radius);
+                    obj = new TikZCircle(data.center, data.radius, data.center2 || data.center);
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
