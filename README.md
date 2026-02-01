@@ -2,6 +2,12 @@
 
 A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes, add LaTeX labels, and export clean TikZ code for use in LaTeX documents.
 
+<p align="center">
+  <a href="https://tikz-draw.online">
+    <img src="https://img.shields.io/badge/🚀_Try_the_Live_Demo-tikz--draw.online-blue?style=for-the-badge&labelColor=2d3748&color=4299e1" alt="Try the Live Demo" height="50">
+  </a>
+</p>
+
 ![TikZ Draw Screenshot](screenshot.png)
 
 ## Features
@@ -27,7 +33,7 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 
 ## Getting Started
 
-Simply open `tikz-draw.html` in a modern web browser. No installation or server required. [Try the live demo](https://tikz-draw.online)
+Simply open `tikz-draw.html` in a modern web browser. No installation or server required.
 
 ```bash
 # Clone the repository
