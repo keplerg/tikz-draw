@@ -335,7 +335,20 @@
         }
         
         .drag-handle:hover { color: #888; }
-        
+
+        .lock-btn {
+            color: #666;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 2px;
+            opacity: 0.5;
+        }
+
+        .lock-btn:hover { opacity: 1; }
+        .lock-btn.locked { color: #e0a000; opacity: 1; }
+        .object-item.locked { opacity: 0.6; }
+        .object-item.locked .obj-name { font-style: italic; }
+
         .expand-btn {
             width: 16px;
             font-size: 10px;
@@ -427,7 +440,36 @@
         }
         
         .modal-close:hover { color: #ccc; }
-        
+
+        /* Right-side Properties Modal */
+        .properties-modal {
+            position: fixed;
+            top: 48px;
+            right: 280px;
+            width: 300px;
+            max-height: calc(100vh - 76px);
+            background: #2d2d2d;
+            border: 1px solid #505050;
+            border-radius: 8px;
+            display: none;
+            flex-direction: column;
+            z-index: 100;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .properties-modal.visible { display: flex; }
+        .properties-modal .modal-header {
+            padding: 12px;
+            border-bottom: 1px solid #404040;
+            margin-bottom: 0;
+            cursor: move;
+            user-select: none;
+        }
+        .properties-modal .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
         .color-picker-area {
             width: 100%;
             height: 150px;
@@ -662,13 +704,6 @@
         </div>
         
         <div class="right-panel">
-            <div class="panel-section">
-                <div class="panel-header">Properties</div>
-                <div class="panel-content" id="propertiesPanel">
-                    <div class="no-selection">No object selected</div>
-                </div>
-            </div>
-            
             <div class="panel-section object-list-container">
                 <div class="panel-header">
                     Objects
@@ -862,6 +897,17 @@
         </div>
     </div>
 
+    <!-- Right-side Properties Modal -->
+    <div class="properties-modal" id="propertiesModal">
+        <div class="modal-header">
+            <h3 id="propertiesModalTitle">Properties</h3>
+            <button class="modal-close" onclick="app.closePropertiesModal()">&times;</button>
+        </div>
+        <div class="panel-content" id="propertiesPanel">
+            <!-- Content generated dynamically -->
+        </div>
+    </div>
+
 <script>
 // ============================================================================
 // TikZ Drawing Application - Phases 1-3
@@ -935,6 +981,7 @@ class TikZObject {
         this.type = type;
         this.visible = true;
         this.expanded = false;
+        this.locked = false;
     }
     
     toTikZ() { return ''; }
@@ -1952,9 +1999,12 @@ class TikZDrawApp {
         // Keyboard
         document.addEventListener('keydown', e => this.onKeyDown(e));
         document.addEventListener('keyup', e => this.onKeyUp(e));
-        
+
         // Object list drag and drop
         this.setupDragDrop();
+
+        // Properties modal drag
+        this.setupPropertiesModalDrag();
     }
     
     resize() {
@@ -1990,7 +2040,11 @@ class TikZDrawApp {
     }
     
     snapToGrid(val) {
-        return Math.round(val / this.snapGrid) * this.snapGrid;
+        if (!this.ctrlKey) {
+            return Math.round(val / this.snapGrid) * this.snapGrid;
+        } else {
+            return Number(Number(val).toFixed(2));
+        }
     }
     
     // ========================================================================
@@ -2534,8 +2588,12 @@ class TikZDrawApp {
         const coordsToMove = [];
 
         for (const coordName of uniqueCoordNames) {
-            if (this.isCoordinateShared(coordName, obj)) {
-                // Coordinate is shared with another object, clone it
+            const coord = this.getCoordByName(coordName);
+            const isShared = this.isCoordinateShared(coordName, obj);
+            const isLocked = coord && coord.locked;
+
+            if (isShared || isLocked) {
+                // Coordinate is shared or locked - clone it so original stays in place
                 const cloned = this.cloneCoordinate(coordName);
                 if (cloned) {
                     // Add cloned coordinate to objects
@@ -2545,8 +2603,7 @@ class TikZDrawApp {
                     coordsToMove.push(cloned);
                 }
             } else {
-                // Coordinate is not shared, move it directly (no cloning needed)
-                const coord = this.getCoordByName(coordName);
+                // Coordinate is not shared and not locked, move it directly
                 if (coord) {
                     coordsToMove.push(coord);
                 }
@@ -2583,8 +2640,11 @@ class TikZDrawApp {
                 return objCoords.includes(coordName);
             });
 
-            if (usedOutside) {
-                // Clone the coordinate for the selection
+            const coord = this.getCoordByName(coordName);
+            const isLocked = coord && coord.locked;
+
+            if (usedOutside || isLocked) {
+                // Clone if used outside selection or if locked (so original stays in place)
                 const cloned = this.cloneCoordinate(coordName);
                 if (cloned) {
                     this.objects.push(cloned);
@@ -2592,8 +2652,7 @@ class TikZDrawApp {
                     coordsToMove.push(cloned);
                 }
             } else {
-                // Move the coordinate directly (not shared outside)
-                const coord = this.getCoordByName(coordName);
+                // Move the coordinate directly (not shared outside and not locked)
                 if (coord) {
                     coordsToMove.push(coord);
                 }
@@ -2760,7 +2819,7 @@ class TikZDrawApp {
             // Calculate rotation angle (how much to rotate from original)
             let rotationAngle = (this.rotateCurrentAngle - this.rotateStartAngle);
 
-            // Apply snapping unless Shift is held
+            // Apply snapping unless Shift or Ctrl is held
             if (!e.shiftKey) {
                 rotationAngle = this.snapAngle(rotationAngle, (ctrl_click ? 1 : 5));
             }
@@ -3007,13 +3066,17 @@ class TikZDrawApp {
                 this.inNudge = true;
             }
 
-            // Collect all coordinates to nudge (avoiding duplicates)
+            // Collect all coordinates to nudge (avoiding duplicates), skipping locked objects
             const coordsToNudge = new Set();
+            const objectsToNudge = this.selectedObjects.filter(obj => !obj.locked);
+            if (objectsToNudge.length === 0) return;
 
-            for (const obj of this.selectedObjects) {
+            for (const obj of objectsToNudge) {
                 if (obj instanceof TikZCoordinate) {
-                    // Direct coordinate - add it
-                    coordsToNudge.add(obj);
+                    // Direct coordinate - skip if locked (can't nudge locked point directly)
+                    if (!obj.locked) {
+                        coordsToNudge.add(obj);
+                    }
                 } else if (obj instanceof TikZRectangle || obj instanceof TikZGrid) {
                     // TikZRectangle and TikZGrid store numeric coords, not coordinate references
                     // Nudge them directly
@@ -3027,7 +3090,17 @@ class TikZDrawApp {
                     for (const coordName of coordNames) {
                         const coord = this.getCoordByName(coordName);
                         if (coord) {
-                            coordsToNudge.add(coord);
+                            if (coord.locked) {
+                                // Clone the locked coordinate so original stays in place
+                                const cloned = this.cloneCoordinate(coordName);
+                                if (cloned) {
+                                    this.objects.push(cloned);
+                                    this.updateObjectCoordinateReference(obj, coordName, cloned.name);
+                                    coordsToNudge.add(cloned);
+                                }
+                            } else {
+                                coordsToNudge.add(coord);
+                            }
                         }
                     }
                 }
@@ -3158,7 +3231,10 @@ class TikZDrawApp {
     }
     
     handleSelectClick(world, ctrl_click) {
-        const obj = this.findObjectAt(world.x, world.y);
+        let obj = this.findObjectAt(world.x, world.y);
+
+        // Skip locked objects (treat as if clicking empty space)
+        if (obj && obj.locked) obj = null;
 
         // Check if clicking on a control point of a selected bezier
         if (obj instanceof TikZCoordinate && this.selectedObjects.length === 1) {
@@ -3210,7 +3286,10 @@ class TikZDrawApp {
     }
 
     handleMoveClick(world) {
-        const obj = this.findObjectAt(world.x, world.y);
+        let obj = this.findObjectAt(world.x, world.y);
+
+        // Skip locked objects
+        if (obj && obj.locked) obj = null;
 
         if (obj) {
             // Save state for undo
@@ -3243,7 +3322,10 @@ class TikZDrawApp {
     }
 
     handleRotateClick(world) {
-        const obj = this.findObjectAt(world.x, world.y);
+        let obj = this.findObjectAt(world.x, world.y);
+
+        // Skip locked objects
+        if (obj && obj.locked) obj = null;
 
         if (obj || this.selectedObjects.length > 0) {
             // Save state for undo
@@ -3347,8 +3429,11 @@ class TikZDrawApp {
                 }
             }
 
-            // Check each coordinate - if shared with non-selected objects, clone it
+            // Check each coordinate - if shared with non-selected objects OR locked, clone it
             for (const coordName of coordNamesInSelection) {
+                const coord = this.getCoordByName(coordName);
+                const isLocked = coord && coord.locked;
+
                 // Check if this coordinate is used by any non-selected objects
                 let sharedWithNonSelected = false;
                 for (const otherObj of this.objects) {
@@ -3362,7 +3447,7 @@ class TikZDrawApp {
                     }
                 }
 
-                if (sharedWithNonSelected) {
+                if (sharedWithNonSelected || isLocked) {
                     // Clone this coordinate and update all selected objects to use the clone
                     const cloned = this.cloneCoordinate(coordName);
                     if (cloned) {
@@ -5180,9 +5265,9 @@ class TikZDrawApp {
         // Clear existing selection (Option A behavior)
         this.selectedObjects = [];
 
-        // Select all objects that are inside or intersect the box
+        // Select all objects that are inside or intersect the box (skip locked objects)
         for (const obj of this.objects) {
-            if (this.isObjectInBox(obj, minX, maxX, minY, maxY)) {
+            if (!obj.locked && this.isObjectInBox(obj, minX, maxX, minY, maxY)) {
                 this.selectedObjects.push(obj);
             }
         }
@@ -5402,27 +5487,17 @@ class TikZDrawApp {
     // ========================================================================
     
     updatePropertiesPanel() {
+        const modal = document.getElementById('propertiesModal');
         const panel = document.getElementById('propertiesPanel');
 
-        if (this.selectedObjects.length === 0) {
-            panel.innerHTML = '<div class="no-selection">No object selected</div>';
+        // Only show modal for single selection
+        if (this.selectedObjects.length !== 1) {
+            modal.classList.remove('visible');
             return;
         }
 
-        if (this.selectedObjects.length > 1) {
-            panel.innerHTML = `<div class="no-selection" style="color:#61afef;">${this.selectedObjects.length} objects selected</div>
-                <div style="margin-top:10px; padding:10px; background:rgba(97,175,239,0.1); border-radius:4px; font-size:12px;">
-                    <div>• Click object to deselect</div>
-                    <div>• Delete key to remove all</div>
-                    <div>• Arrow keys to move all</div>
-                    <div>• Move tool (M) to drag all</div>
-                    <div>• Rotate tool (O) to rotate all</div>
-                    <div>• Ctrl+C to copy all</div>
-                    <div>• Ctrl+V to paste all</div>
-                </div>`;
-            return;
-        }
-
+        // Show modal for single selection
+        modal.classList.add('visible');
         const obj = this.selectedObjects[0];
         let html = '';
 
@@ -6441,7 +6516,66 @@ class TikZDrawApp {
         this.editingNode = null;
         this.editingNodeParent = null;
     }
-    
+
+    closePropertiesModal() {
+        document.getElementById('propertiesModal').classList.remove('visible');
+        this.selectedObjects = [];
+        this.updateObjectList();
+        this.render();
+    }
+
+    setupPropertiesModalDrag() {
+        const modal = document.getElementById('propertiesModal');
+        const header = modal.querySelector('.modal-header');
+        let isDragging = false;
+        let startX, startY, startLeft, startTop;
+
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('modal-close')) return;
+            isDragging = true;
+            const rect = modal.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            // Switch from right-positioning to left-positioning
+            modal.style.left = rect.left + 'px';
+            modal.style.top = rect.top + 'px';
+            modal.style.right = 'auto';
+            e.preventDefault();
+        });
+
+        // Double-click to reset position
+        header.addEventListener('dblclick', (e) => {
+            if (e.target.classList.contains('modal-close')) return;
+            this.resetPropertiesModalPosition();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+            // Constrain to viewport
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - modal.offsetWidth));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - modal.offsetHeight));
+            modal.style.left = newLeft + 'px';
+            modal.style.top = newTop + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    }
+
+    resetPropertiesModalPosition() {
+        const modal = document.getElementById('propertiesModal');
+        modal.style.left = '';
+        modal.style.top = '';
+        modal.style.right = '280px';
+    }
+
     saveNode() {
         if (!this.editingNode) return;
 
@@ -6565,8 +6699,9 @@ class TikZDrawApp {
             }
 
             if (!hide) {
-                html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''}"
-                             data-id="${obj.id}" draggable="true">
+                html += `<div class="object-item ${isSelected ? 'selected' : ''} ${hasSubObjects ? 'compound' : ''} ${obj.locked ? 'locked' : ''}"
+                             data-id="${obj.id}" draggable="${obj.locked ? 'false' : 'true'}">
+                    <span class="lock-btn ${obj.locked ? 'locked' : ''}" onclick="event.stopPropagation(); app.toggleLock('${obj.id}')" title="${obj.locked ? 'Unlock' : 'Lock'}">${obj.locked ? ' &#x1F510; ' : ' &#x1F513; ' }</span>
                     <span class="drag-handle">⠿</span>
                     <span class="expand-btn" onclick="event.stopPropagation(); app.toggleExpand('${obj.id}')">${hasSubObjects ? (obj.expanded ? '▼' : '◢') : ''}</span>
                     <span class="obj-icon">${icon}</span>
@@ -6662,7 +6797,65 @@ class TikZDrawApp {
             this.updateObjectList();
         }
     }
-    
+
+    toggleLock(id) {
+        const obj = this.objects.find(o => o.id === id);
+        if (obj) {
+            this.saveState();
+            const newLockState = !obj.locked;
+            obj.locked = newLockState;
+
+            // Also lock/unlock referenced coordinates
+            if (!(obj instanceof TikZCoordinate)) {
+                const coordNames = this.getObjectCoordinates(obj);
+                for (const coordName of coordNames) {
+                    const coord = this.getCoordByName(coordName);
+                    if (coord) {
+                        if (newLockState) {
+                            // Locking: lock the coordinate
+                            coord.locked = true;
+                        } else {
+                            // Unlocking: only unlock if no other locked object uses this coord
+                            const isUsedByOtherLocked = this.objects.some(other =>
+                                other !== obj &&
+                                other.locked &&
+                                !(other instanceof TikZCoordinate) &&
+                                this.getObjectCoordinates(other).includes(coordName)
+                            );
+                            if (!isUsedByOtherLocked) {
+                                coord.locked = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If locking, deselect the object and its coordinates
+            if (newLockState) {
+                const selIdx = this.selectedObjects.indexOf(obj);
+                if (selIdx !== -1) {
+                    this.selectedObjects.splice(selIdx, 1);
+                }
+                // Also deselect any coordinates that were just locked
+                if (!(obj instanceof TikZCoordinate)) {
+                    const coordNames = this.getObjectCoordinates(obj);
+                    for (const coordName of coordNames) {
+                        const coord = this.getCoordByName(coordName);
+                        if (coord) {
+                            const coordSelIdx = this.selectedObjects.indexOf(coord);
+                            if (coordSelIdx !== -1) {
+                                this.selectedObjects.splice(coordSelIdx, 1);
+                            }
+                        }
+                    }
+                }
+            }
+            this.updateObjectList();
+            this.updatePropertiesPanel();
+            this.render();
+        }
+    }
+
     updateObjectCount() {
         document.getElementById('objectCount').textContent = this.objects.length;
     }
@@ -6674,8 +6867,9 @@ class TikZDrawApp {
 
         // Click handler for object list items
         list.addEventListener('click', e => {
-            // Ignore clicks on expand button (it has its own handler)
+            // Ignore clicks on expand button or lock button (they have their own handlers)
             if (e.target.closest('.expand-btn')) return;
+            if (e.target.closest('.lock-btn')) return;
 
             const item = e.target.closest('.object-item');
             if (!item) return;
@@ -6685,6 +6879,9 @@ class TikZDrawApp {
 
             const obj = this.objects.find(o => o.id === objId);
             if (!obj) return;
+
+            // Don't allow selecting locked objects
+            if (obj.locked) return;
 
             // If clicking a subobject (embedded label)
             if (subIndex !== undefined) {
@@ -7275,8 +7472,8 @@ class TikZDrawApp {
     }
             
     serializeObject(obj) {
-        const data = { type: obj.constructor.name, id: obj.id };
-        
+        const data = { type: obj.constructor.name, id: obj.id, locked: obj.locked || false };
+
         if (obj instanceof TikZCoordinate) {
             data.x = obj.x;
             data.y = obj.y;
@@ -7681,6 +7878,7 @@ class TikZDrawApp {
             if (obj) {
                 obj.id = data.id || obj.id;
                 obj.expanded = data.expanded || false;
+                obj.locked = data.locked || false;
             }
         } catch (err) {
             console.error('Error deserializing object:', data, err);
