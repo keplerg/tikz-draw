@@ -646,10 +646,10 @@
                 <span class="tool-icon">↖</span>
                 <span>Select</span>
             </div>
-            <div class="tool" data-tool="move" title="Move (M)">
+            <!-- div class="tool" data-tool="move" title="Move (M)">
                 <span class="tool-icon">✥</span>
                 <span>Move</span>
-            </div>
+            </div -->
             <div class="tool" data-tool="rotate" title="Rotate (O)">
                 <span class="tool-icon">↻</span>
                 <span>Rotate</span>
@@ -710,7 +710,7 @@
                     <span style="font-weight:normal;text-transform:none;font-size:10px;color:#eee;">drag to reorder</span>
                 </div>
                 <div class="panel-header" style="display:flex;gap:12px;padding:4px 10px;">
-                  <label style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" id="hideInvisiblePoints" name="hideInvisiblePoints" value="1" onclick="javascript:app.updateObjectList();"/> Hide Invisible Points</label>
+                  <label style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" id="hideInvisiblePoints" name="hideInvisiblePoints" value="1" onclick="javascript:app.updateObjectList();" checked/> Hide Invisible Points</label>
                   <label style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" id="removeUnusedPoints" name="removeUnusedPoints" value="1" onclick="javascript:app.updateObjectList();"/> Remove Unused</label>
                 </div>
                 <div class="object-list" id="objectList"></div>
@@ -1683,6 +1683,10 @@ class TikZDrawApp {
         this.boxSelectStart = null;
         this.boxSelectEnd = null;
 
+        // Select-move state (moving objects in select mode)
+        this.selectMoveStart = null;
+        this.selectMoveObject = null;
+
         // Move tool state
         this.isMoving = false;
         this.moveObject = null;
@@ -1704,6 +1708,9 @@ class TikZDrawApp {
 
         // Clipboard for copy/paste
         this.clipboard = null;
+
+        // Unsaved changes tracking
+        this.hasUnsavedChanges = false;
 
         // Initialize
         this.setupEventListeners();
@@ -1965,7 +1972,16 @@ class TikZDrawApp {
     setupEventListeners() {
         // Window resize
         window.addEventListener('resize', () => this.resize());
-        
+
+        // Warn before leaving with unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            if (this.hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        });
+
         // Tool buttons
         document.querySelectorAll('.tool').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -2762,6 +2778,34 @@ class TikZDrawApp {
             }
         }
 
+        // Handle select-move (dragging objects in select mode)
+        if (this.selectMoveStart && this.currentTool === 'select' && !this.isMoving) {
+            const dx = Math.abs(world.x - this.selectMoveStart.x);
+            const dy = Math.abs(world.y - this.selectMoveStart.y);
+            if (dx > 0.1 || dy > 0.1) {
+                // Started dragging - initiate move
+                this.saveState();
+
+                const obj = this.selectMoveObject;
+                const clickedOnSelected = this.selectedObjects.includes(obj);
+
+                if (clickedOnSelected && this.selectedObjects.length > 1) {
+                    // Moving multiple selected objects
+                    this.moveCoords = this.prepareMultipleObjectsForMove(this.selectedObjects);
+                    this.moveObject = null;
+                } else {
+                    // Moving single object
+                    this.moveCoords = this.prepareObjectForMove(obj);
+                    this.moveObject = obj;
+                }
+
+                this.isMoving = true;
+                this.moveStart = this.selectMoveStart;
+                this.selectMoveStart = null;
+                this.selectMoveObject = null;
+            }
+        }
+
         // Handle dragging selected object
         if (this.isDragging && this.dragObject && this.dragObject instanceof TikZCoordinate) {
             this.dragObject.x = snapped.x;
@@ -2906,13 +2950,16 @@ class TikZDrawApp {
             return;
         }
 
+        // Update cursor in select mode based on what's under mouse
+        this.setCursor();
+
         // Update temp drawing for tools
         if (this.tempPoints.length > 0) {
             this.render();
             this.drawTempGeometry(snapped);
         }
     }
-    
+
     onMouseUp(e) {
         // Handle box selection completion
         if (this.boxSelectStart) {
@@ -2955,11 +3002,13 @@ class TikZDrawApp {
             this.moveStart = null;
             this.moveCoords = [];
             this.lastMoveDelta = null;
-            // Reset cursor back to move tool cursor
-            if (this.currentTool === 'move') {
-                this.canvas.style.cursor = 'move';
-            }
             this.updateObjectList();
+        }
+
+        // Clean up select-move state (clicked but didn't drag)
+        if (this.selectMoveStart) {
+            this.selectMoveStart = null;
+            this.selectMoveObject = null;
         }
 
         if (this.isRotating) {
@@ -2974,12 +3023,9 @@ class TikZDrawApp {
             this.rotateImages = [];
             this.rotateLabels = [];
             this.rotateEmbeddedNodes = [];
-            // Reset cursor back to rotate tool cursor
-            if (this.currentTool === 'rotate') {
-                this.canvas.style.cursor = 'crosshair';
-            }
             this.updateObjectList();
         }
+        this.setCursor();
     }
     
     onWheel(e) {
@@ -3252,26 +3298,29 @@ class TikZDrawApp {
             }
         }
 
-        // Clear selected if not a control click
-        if (!ctrl_click) {
-            this.selectedObjects = [];
-        }
-
         if (obj) {
-            // Toggle selection: if already selected, deselect; otherwise add to selection
-            const index = this.selectedObjects.indexOf(obj);
-            if (index >= 0) {
-                // Object is already selected, remove it
-                this.selectedObjects.splice(index, 1);
-            } else {
-                // Object is not selected, add it
-                this.selectedObjects.push(obj);
-            }
+            const wasAlreadySelected = this.selectedObjects.includes(obj);
 
-            // Start dragging if it's a coordinate and it's the only selected object
-            if (obj instanceof TikZCoordinate && this.selectedObjects.length === 1) {
-                this.isDragging = true;
-                this.dragObject = obj;
+            if (ctrl_click) {
+                // Ctrl-click: toggle selection without starting move
+                const index = this.selectedObjects.indexOf(obj);
+                if (index >= 0) {
+                    this.selectedObjects.splice(index, 1);
+                } else {
+                    this.selectedObjects.push(obj);
+                }
+            } else {
+                // Regular click on object
+                if (!wasAlreadySelected) {
+                    // Clicking on unselected object - select only this one
+                    this.selectedObjects = [obj];
+                }
+                // If already selected, keep current selection (for multi-move)
+
+                // Prepare for potential move (actual move starts in onMouseMove if dragged)
+                this.selectMoveStart = { x: world.x, y: world.y };
+                this.selectMoveObject = obj;
+                this.selectMoveWasSelected = wasAlreadySelected;
             }
 
             // Update UI
@@ -3281,7 +3330,9 @@ class TikZDrawApp {
             this.render();
         } else {
             // Clicked on empty space - start box selection (actual selection happens on mouseup)
-            this.boxSelectStart = { x: world.x, y: world.y };
+            if (!ctrl_click) {
+                this.boxSelectStart = { x: world.x, y: world.y };
+            }
         }
     }
 
@@ -3518,8 +3569,28 @@ class TikZDrawApp {
         this.toolState = null;
         document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
         document.querySelector('.tool[data-tool="select"]').classList.add('active');
-        this.canvas.style.cursor = 'default';
+        this.setCursor();
         this.updateStatusTip();
+    }
+
+    setCursor() {
+        const rect = this.canvas.getBoundingClientRect();
+        const sx = this.lastMouseX - rect.left;
+        const sy = this.lastMouseY - rect.top;
+        const world = this.screenToWorld(sx, sy);
+        const objUnderMouse = this.findObjectAt(world.x, world.y);
+        if (this.currentTool === 'rotate') {
+            this.canvas.style.cursor = 'crosshair';
+        } else if (objUnderMouse && !objUnderMouse.locked && this.selectedObjects.includes(objUnderMouse)) {
+            // Hovering over a selected object - show move cursor
+            this.canvas.style.cursor = 'move';
+        } else if (objUnderMouse && !objUnderMouse.locked) {
+            // Hovering over an unselected object - show pointer
+            this.canvas.style.cursor = 'pointer';
+        } else {
+            // Hovering over empty space - default cursor
+            this.canvas.style.cursor = 'default';
+        }
     }
 
     handlePointClick(snapped) {
@@ -7439,8 +7510,9 @@ class TikZDrawApp {
             a.click();
             URL.revokeObjectURL(url);
         }
+        this.hasUnsavedChanges = false;
     }
-    
+
     async saveFile(blob) {
       try {
         // Define picker options (suggested name, file types, etc.)
@@ -7634,6 +7706,13 @@ class TikZDrawApp {
     }
     
     loadProject() {
+        // Warn if there are unsaved changes
+        if (this.hasUnsavedChanges) {
+            if (!confirm('You have unsaved changes. Do you want to continue and lose your changes?')) {
+                return;
+            }
+        }
+
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -7706,8 +7785,11 @@ class TikZDrawApp {
         
         // Update zoom display
         document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
+
+        // Loading a file starts fresh - no unsaved changes
+        this.hasUnsavedChanges = false;
     }
-    
+
     deserializeObject(data) {
         let obj;
         
@@ -7898,16 +7980,18 @@ class TikZDrawApp {
             this.undoStack.shift();
         }
 
-        // Deep copy current state
+        // Deep copy current state (capture hasUnsavedChanges before we set it to true)
         const state = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors }
+            customColors: { ...this.customColors },
+            hasUnsavedChanges: this.hasUnsavedChanges
         };
 
         this.undoStack.push(state);
         this.redoStack = []; // Clear redo stack when new action taken
         this.inNudge = false; // Keeps from saving sequential nudges
+        this.hasUnsavedChanges = true;
 
         this.updateUndoRedoButtons();
     }
@@ -7919,7 +8003,8 @@ class TikZDrawApp {
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors }
+            customColors: { ...this.customColors },
+            hasUnsavedChanges: this.hasUnsavedChanges
         };
         this.redoStack.push(currentState);
 
@@ -7937,7 +8022,8 @@ class TikZDrawApp {
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors }
+            customColors: { ...this.customColors },
+            hasUnsavedChanges: this.hasUnsavedChanges
         };
         this.undoStack.push(currentState);
 
@@ -7958,6 +8044,11 @@ class TikZDrawApp {
         // Restore selection
         this.selectedObjects = this.objects.filter(o => state.selectedIds && state.selectedIds.includes(o.id));
         this.selectedSubIndex = -1;
+
+        // Restore unsaved changes flag
+        if (state.hasUnsavedChanges !== undefined) {
+            this.hasUnsavedChanges = state.hasUnsavedChanges;
+        }
 
         this.render();
         this.updatePropertiesPanel();
