@@ -1663,6 +1663,10 @@ class TikZDrawApp {
         this.redoStack = [];
         this.maxHistory = 50;
 
+        // Image data cache - stores base64 data separately to avoid duplication in undo stack
+        // Key: imageId, Value: { imageData, filename, mimeType }
+        this.imageDataCache = new Map();
+
         // LaTeX rendering cache
         this.latexCache = new Map(); // text -> {svg, width, height}
         this.latexRenderQueue = [];
@@ -1712,6 +1716,11 @@ class TikZDrawApp {
         // Unsaved changes tracking
         this.hasUnsavedChanges = false;
 
+        // Throttling for expensive DOM updates during continuous operations (e.g., dragging)
+        this._pendingPropertiesUpdate = false;
+        this._pendingObjectListUpdate = false;
+        this._throttleDelay = 50; // ms between DOM updates during drag
+
         // Initialize
         this.setupEventListeners();
         this.resize();
@@ -1720,6 +1729,26 @@ class TikZDrawApp {
 
         // Wait for MathJax to be ready
         this.initMathJax();
+    }
+
+    // Throttled version of updatePropertiesPanel for use during continuous operations
+    updatePropertiesPanelThrottled() {
+        if (this._pendingPropertiesUpdate) return;
+        this._pendingPropertiesUpdate = true;
+        setTimeout(() => {
+            this._pendingPropertiesUpdate = false;
+            this.updatePropertiesPanel();
+        }, this._throttleDelay);
+    }
+
+    // Throttled version of updateObjectList for use during continuous operations
+    updateObjectListThrottled() {
+        if (this._pendingObjectListUpdate) return;
+        this._pendingObjectListUpdate = true;
+        setTimeout(() => {
+            this._pendingObjectListUpdate = false;
+            this.updateObjectList();
+        }, this._throttleDelay);
     }
     
     initMathJax() {
@@ -2159,12 +2188,26 @@ class TikZDrawApp {
     }
 
     getCoordByName(name) {
+        // Use cached lookup map for O(1) access instead of O(n) linear search
+        if (!this._coordMap) {
+            this._rebuildCoordMap();
+        }
+        return this._coordMap.get(name) || null;
+    }
+
+    // Rebuild the coordinate lookup map - call when coords are added/removed/renamed
+    _rebuildCoordMap() {
+        this._coordMap = new Map();
         for (const obj of this.objects) {
-            if (obj instanceof TikZCoordinate && obj.name === name) {
-                return obj;
+            if (obj instanceof TikZCoordinate) {
+                this._coordMap.set(obj.name, obj);
             }
         }
-        return null;
+    }
+
+    // Invalidate coord map - call when any coord changes that would affect lookups
+    _invalidateCoordMap() {
+        this._coordMap = null;
     }
     
     findCoordNear(wx, wy, threshold = 0.3) {
@@ -2803,7 +2846,7 @@ class TikZDrawApp {
             this.dragObject.x = snapped.x;
             this.dragObject.y = snapped.y;
             this.render();
-            this.updatePropertiesPanel();
+            this.updatePropertiesPanelThrottled(); // Throttled to avoid DOM thrashing
             return;
         }
 
@@ -2839,7 +2882,7 @@ class TikZDrawApp {
 
             this.lastMoveDelta = { dx, dy };
             this.render();
-            this.updatePropertiesPanel();
+            this.updatePropertiesPanelThrottled(); // Throttled to avoid DOM thrashing
             return;
         }
 
@@ -3163,7 +3206,6 @@ class TikZDrawApp {
             this.selectedObjects = [];
             this.updatePropertiesPanel();
             this.updateObjectList();
-            this.updateUndoRedoButtons();
             this.updateUndoRedoButtons();
             this.render();
             return;
@@ -3979,6 +4021,9 @@ class TikZDrawApp {
         if (this.isRendering) return;
 
         this.isRendering = true;
+
+        // Invalidate coord lookup cache so it rebuilds with fresh data
+        this._invalidateCoordMap();
 
         try {
             const ctx = this.ctx;
@@ -7477,7 +7522,7 @@ class TikZDrawApp {
             viewY: this.viewY,
             zoom: this.zoom,
             customColors: this.customColors,
-            objects: this.objects.map(o => this.serializeObject(o))
+            objects: this.objects.map(o => this.serializeObject(o, true)) // true = include full image data
         };
 
         const json = JSON.stringify(data, null, 2);
@@ -7533,7 +7578,7 @@ class TikZDrawApp {
       }
     }
             
-    serializeObject(obj) {
+    serializeObject(obj, forFile = false) {
         const data = { type: obj.constructor.name, id: obj.id, locked: obj.locked || false };
 
         if (obj instanceof TikZCoordinate) {
@@ -7669,7 +7714,21 @@ class TikZDrawApp {
             data.name = obj.name;
         } else if (obj instanceof TikZImage) {
             data.at = obj.at;
-            data.imageData = obj.imageData;
+            if (forFile) {
+                // For file save: include full image data
+                data.imageData = obj.imageData;
+            } else {
+                // For undo/redo: store image data in cache to avoid duplication
+                if (obj.imageData && !this.imageDataCache.has(obj.id)) {
+                    this.imageDataCache.set(obj.id, {
+                        imageData: obj.imageData,
+                        filename: obj.filename,
+                        mimeType: obj.mimeType
+                    });
+                }
+                // Only store reference flag, not actual data
+                data.imageDataCached = true;
+            }
             data.filename = obj.filename;
             data.mimeType = obj.mimeType;
             data.width = obj.width;
@@ -7747,6 +7806,8 @@ class TikZDrawApp {
         this.objects = [];
         this.selectedObjects = [];
         this.latexCache.clear();
+        this.imageDataCache.clear(); // Clear image cache to free memory
+        // Note: undo/redo stacks are preserved so user can undo the file load
         objectIdCounter = 0;
         
         // Load settings
@@ -7925,7 +7986,17 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZImage':
-                    obj = new TikZImage(data.at, data.imageData, data.filename, data.mimeType);
+                    // Restore image data from cache if available (undo/redo case)
+                    let imageData = data.imageData;
+                    let filename = data.filename;
+                    let mimeType = data.mimeType;
+                    if (data.imageDataCached && data.id && this.imageDataCache.has(data.id)) {
+                        const cached = this.imageDataCache.get(data.id);
+                        imageData = cached.imageData;
+                        filename = cached.filename || filename;
+                        mimeType = cached.mimeType || mimeType;
+                    }
+                    obj = new TikZImage(data.at, imageData, filename, mimeType);
                     obj.width = data.width;
                     obj.height = data.height;
                     obj.opacity = data.opacity;
@@ -7966,8 +8037,10 @@ class TikZDrawApp {
         if (this.tempPoints.length > 0) return;
 
         // Limit history size
+        let needsCleanup = false;
         if (this.undoStack.length >= this.maxHistory) {
             this.undoStack.shift();
+            needsCleanup = true;
         }
 
         // Deep copy current state (capture hasUnsavedChanges before we set it to true)
@@ -7979,7 +8052,18 @@ class TikZDrawApp {
         };
 
         this.undoStack.push(state);
-        this.redoStack = []; // Clear redo stack when new action taken
+
+        // Clear redo stack when new action taken
+        if (this.redoStack.length > 0) {
+            this.redoStack = [];
+            needsCleanup = true;
+        }
+
+        // Clean up image cache if we discarded states
+        if (needsCleanup) {
+            this.cleanupImageCache();
+        }
+
         this.inNudge = false; // Keeps from saving sequential nudges
         this.hasUnsavedChanges = true;
 
@@ -8046,12 +8130,53 @@ class TikZDrawApp {
         this.updateUndoRedoButtons();
     }
 
+    // Clean up image cache by removing entries for images no longer in any state
+    cleanupImageCache() {
+        if (this.imageDataCache.size === 0) return;
+
+        // Collect all image IDs that are still referenced
+        const referencedIds = new Set();
+
+        // From current objects
+        for (const obj of this.objects) {
+            if (obj instanceof TikZImage) {
+                referencedIds.add(obj.id);
+            }
+        }
+
+        // From undo stack
+        for (const state of this.undoStack) {
+            for (const data of state.objects) {
+                if (data.type === 'TikZImage' && data.id) {
+                    referencedIds.add(data.id);
+                }
+            }
+        }
+
+        // From redo stack
+        for (const state of this.redoStack) {
+            for (const data of state.objects) {
+                if (data.type === 'TikZImage' && data.id) {
+                    referencedIds.add(data.id);
+                }
+            }
+        }
+
+        // Remove unreferenced entries from cache
+        for (const id of this.imageDataCache.keys()) {
+            if (!referencedIds.has(id)) {
+                this.imageDataCache.delete(id);
+            }
+        }
+    }
+
     copyObject() {
         if (this.selectedObjects.length === 0) return;
 
-        // Serialize all selected objects
+        // Serialize all selected objects with full data (true = include image data)
+        // since pasted objects will have new IDs and won't match the cache
         this.clipboard = {
-            objects: this.selectedObjects.map(obj => this.serializeObject(obj)),
+            objects: this.selectedObjects.map(obj => this.serializeObject(obj, true)),
             count: this.selectedObjects.length
         };
 
@@ -8157,23 +8282,26 @@ class TikZDrawApp {
     }
 
     updateUndoRedoButtons() {
-        const undoBtn = document.getElementById('undoBtn');
-        const redoBtn = document.getElementById('redoBtn');
-        const copyBtn = document.getElementById('copyBtn');
-        const pasteBtn = document.getElementById('pasteBtn');
+        // Cache button references on first call for performance
+        if (!this._undoBtn) {
+            this._undoBtn = document.getElementById('undoBtn');
+            this._redoBtn = document.getElementById('redoBtn');
+            this._copyBtn = document.getElementById('copyBtn');
+            this._pasteBtn = document.getElementById('pasteBtn');
+        }
 
-        if (undoBtn) {
-            undoBtn.disabled = this.undoStack.length === 0;
+        if (this._undoBtn) {
+            this._undoBtn.disabled = this.undoStack.length === 0;
         }
-        if (redoBtn) {
-            redoBtn.disabled = this.redoStack.length === 0;
+        if (this._redoBtn) {
+            this._redoBtn.disabled = this.redoStack.length === 0;
         }
-        if (copyBtn) {
+        if (this._copyBtn) {
             // Enable copy when any objects are selected
-            copyBtn.disabled = this.selectedObjects.length === 0;
+            this._copyBtn.disabled = this.selectedObjects.length === 0;
         }
-        if (pasteBtn) {
-            pasteBtn.disabled = !this.clipboard;
+        if (this._pasteBtn) {
+            this._pasteBtn.disabled = !this.clipboard;
         }
     }
 }
