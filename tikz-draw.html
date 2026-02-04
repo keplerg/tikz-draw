@@ -1999,7 +1999,8 @@ class TikZDrawApp {
         // Canvas events
         this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
         this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
-        this.canvas.addEventListener('mouseup', e => this.onMouseUp(e));
+        // Listen on document for mouseup so we catch it even if it happens on a modal
+        document.addEventListener('mouseup', e => this.onMouseUp(e));
         this.canvas.addEventListener('wheel', e => this.onWheel(e));
         this.canvas.addEventListener('contextmenu', e => e.preventDefault());
         
