@@ -1990,17 +1990,8 @@ class TikZDrawApp {
                 this.currentTool = btn.dataset.tool;
                 this.toolState = null;
                 this.tempPoints = [];
-
-                // Set cursor based on tool
-                if (this.currentTool === 'move') {
-                    this.canvas.style.cursor = 'move';
-                } else if (this.currentTool === 'select') {
-                    this.canvas.style.cursor = 'default';
-                } else {
-                    this.canvas.style.cursor = 'crosshair';
-                }
-
                 this.updateStatusTip();
+                this.updateCursor();
                 this.render();
             });
         });
@@ -2951,7 +2942,7 @@ class TikZDrawApp {
         }
 
         // Update cursor in select mode based on what's under mouse
-        this.setCursor();
+        this.updateCursor();
 
         // Update temp drawing for tools
         if (this.tempPoints.length > 0) {
@@ -3025,7 +3016,7 @@ class TikZDrawApp {
             this.rotateEmbeddedNodes = [];
             this.updateObjectList();
         }
-        this.setCursor();
+        this.updateCursor();
     }
     
     onWheel(e) {
@@ -3569,17 +3560,15 @@ class TikZDrawApp {
         this.toolState = null;
         document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
         document.querySelector('.tool[data-tool="select"]').classList.add('active');
-        this.setCursor();
+        this.updateCursor();
         this.updateStatusTip();
     }
 
-    setCursor() {
-        const rect = this.canvas.getBoundingClientRect();
-        const sx = this.lastMouseX - rect.left;
-        const sy = this.lastMouseY - rect.top;
-        const world = this.screenToWorld(sx, sy);
+    updateCursor() {
+        const world = this.screenToWorld(this.lastMouseX, this.lastMouseY);
         const objUnderMouse = this.findObjectAt(world.x, world.y);
-        if (this.currentTool === 'rotate') {
+
+        if (this.currentTool !== 'move' && this.currentTool !== 'select') {
             this.canvas.style.cursor = 'crosshair';
         } else if (objUnderMouse && !objUnderMouse.locked && this.selectedObjects.includes(objUnderMouse)) {
             // Hovering over a selected object - show move cursor
