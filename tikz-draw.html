@@ -8206,11 +8206,18 @@ class TikZDrawApp {
         // Map to store old coordinate names -> new coordinate names
         const coordMap = {};
 
+        // Track which clipboard items are TikZCoordinates (by their name)
+        const clipboardCoordinateNames = new Set();
+
         // First pass: collect ALL unique coordinates used by ALL objects
         const allCoordNames = new Set();
         for (const objData of clipboardData) {
             const tempObj = this.deserializeObject(objData);
             if (tempObj) {
+                // Track TikZCoordinates in the clipboard
+                if (tempObj instanceof TikZCoordinate) {
+                    clipboardCoordinateNames.add(tempObj.name);
+                }
                 const coordNames = this.getObjectCoordinates(tempObj);
                 coordNames.forEach(name => allCoordNames.add(name));
             }
@@ -8218,6 +8225,7 @@ class TikZDrawApp {
 
         // Create new coordinates for all coordinates used by the group
         // This ensures shared coordinates within the group remain shared
+        const newObjects = [];
         for (const oldCoordName of allCoordNames) {
             const oldCoord = this.getCoordByName(oldCoordName);
             if (oldCoord) {
@@ -8237,13 +8245,23 @@ class TikZDrawApp {
                 newCoord.anchor = oldCoord.anchor;
 
                 this.objects.push(newCoord);
+                this._invalidateCoordMap(); // Invalidate cache so generateCoordName sees the new coord
                 coordMap[oldCoordName] = newCoordName;
+
+                // If this was a TikZCoordinate in the clipboard, add to newObjects for selection
+                if (clipboardCoordinateNames.has(oldCoordName)) {
+                    newObjects.push(newCoord);
+                }
             }
         }
 
-        // Second pass: deserialize all objects and update their coordinate references
-        const newObjects = [];
+        // Second pass: deserialize all NON-COORDINATE objects and update their coordinate references
         for (const objData of clipboardData) {
+            // Skip TikZCoordinates - they were already handled in the first pass
+            if (objData.type === 'TikZCoordinate') {
+                continue;
+            }
+
             const newObj = this.deserializeObject(objData);
             if (newObj) {
                 // generate new name and id
