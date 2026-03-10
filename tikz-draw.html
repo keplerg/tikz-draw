@@ -342,13 +342,11 @@
             cursor: pointer;
             font-size: 12px;
             padding: 2px;
-            opacity: 0.5;
         }
 
         .lock-btn:hover { opacity: 1; }
         .lock-btn.locked { color: #e0a000; opacity: 1; }
-        .object-item.locked { opacity: 0.6; }
-        .object-item.locked .obj-name { font-style: italic; }
+        .object-item.locked .obj-name { font-style: italic; opacity: 0.75; }
 
         .expand-btn {
             width: 16px;
@@ -1715,6 +1713,7 @@ class TikZDrawApp {
         this.clipboard = null;
 
         // Unsaved changes tracking
+        this.currentFilename = 'tikz-drawing.json';
         this.hasUnsavedChanges = false;
 
         // Throttling for expensive DOM updates during continuous operations (e.g., dragging)
@@ -7528,32 +7527,16 @@ class TikZDrawApp {
 
         const json = JSON.stringify(data, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
-        if (!this.saveFile(blob)) {
-            // Prompt for filename
-            let filename = prompt('Enter filename:', 'tikz-drawing');
-            if (!filename) return; // User cancelled
-    
-            // Ensure .json extension
-            filename = filename.trim();
-            if (!filename.endsWith('.json')) {
-                filename += '.json';
-            }
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+        this.saveFile(blob);
         this.hasUnsavedChanges = false;
     }
 
     async saveFile(blob) {
+      let ignore = (typeof window.showSaveFilePicker !== "undefined");
       try {
         // Define picker options (suggested name, file types, etc.)
         const pickerOptions = {
-          suggestedName: 'tikz-project.json',
+          suggestedName: this.currentFilename,
           types: [{
             description: 'Tikz-draw file',
             accept: {
@@ -7573,9 +7556,25 @@ class TikZDrawApp {
 
         // Close the file
         await writableFileStream.close();
-        return true;
       } catch (err) {
-        return false;
+        if (!ignore) {
+          // Prompt for filename
+          let filename = prompt('Enter filename:', this.currentFilename);
+          if (!filename) return; // User cancelled
+
+          // Ensure .json extension
+          filename = filename.trim();
+          if (!filename.endsWith('.json')) {
+              filename += '.json';
+          }
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
       }
     }
             
@@ -7770,6 +7769,7 @@ class TikZDrawApp {
         input.addEventListener('change', e => {
             const file = e.target.files[0];
             if (file) {
+                this.currentFilename = file.name;
                 const reader = new FileReader();
                 reader.onload = event => {
                     try {
