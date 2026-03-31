@@ -38,7 +38,7 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1e1e1e;
             color: #e0e0e0;
-            height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -133,7 +133,15 @@
         .tool.active { background: #094771; border-color: #1177bb; color: #fff; }
         .tool-icon { font-size: 18px; line-height: 1; }
         .tool-divider { height: 1px; background: #404040; margin: 6px 0; }
-        
+
+        /* Compact toolbar on touch screens so tools fit without scrolling */
+        @media (hover: none) and (pointer: coarse) {
+            .toolbar { padding: 4px; gap: 2px; }
+            .tool { width: 40px; height: 34px; font-size: 8px; gap: 1px; }
+            .tool-icon { font-size: 15px; }
+            .tool-divider { margin: 3px 0; }
+        }
+
         /* Canvas */
         .canvas-container {
             flex: 1;
@@ -446,7 +454,7 @@
             top: 48px;
             right: 280px;
             width: 300px;
-            max-height: calc(100vh - 76px);
+            max-height: calc(100dvh - 76px);
             background: #2d2d2d;
             border: 1px solid #505050;
             border-radius: 8px;
@@ -1696,6 +1704,14 @@ class TikZDrawApp {
         this.moveStart = null;
         this.moveCoords = []; // Coordinates being moved
 
+        // Touch state
+        this.touchActive = false;
+        this.touchStartSX = 0;
+        this.touchStartSY = 0;
+        this.touchHasMoved = false;
+        this.touchPinchDist = null;
+        this.touchPinchZoom = null;
+
         // Rotate tool state
         this.isRotating = false;
         this.rotateCenter = null; // { x, y } - center point of rotation
@@ -2032,6 +2048,12 @@ class TikZDrawApp {
         document.addEventListener('mouseup', e => this.onMouseUp(e));
         this.canvas.addEventListener('wheel', e => this.onWheel(e));
         this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Touch events (tablet support)
+        this.canvas.addEventListener('touchstart',  e => this.onTouchStart(e),  { passive: false });
+        this.canvas.addEventListener('touchmove',   e => this.onTouchMove(e),   { passive: false });
+        this.canvas.addEventListener('touchend',    e => this.onTouchEnd(e),    { passive: false });
+        this.canvas.addEventListener('touchcancel', e => this.onTouchEnd(e),    { passive: false });
         
         // Keyboard
         document.addEventListener('keydown', e => this.onKeyDown(e));
@@ -3084,7 +3106,164 @@ class TikZDrawApp {
         document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
         this.render();
     }
-    
+
+    // ── Touch support (tablet) ────────────────────────────────────────────────
+    //
+    // Gesture model:
+    //   Single finger touch  → mousedown (first tool click / begin select/drag)
+    //   Single finger drag   → mousemove (preview / pan / move objects)
+    //   Single finger lift   → mouseup  AND, for drawing tools, a second tool click
+    //                          to complete the shape at the lifted position.
+    //                          A drag-then-lift therefore draws a shape in one gesture.
+    //                          A tap-then-tap works too: tap 1 = first point, tap 2 = complete.
+    //   Two finger drag      → pan
+    //   Two finger pinch     → zoom (centred on pinch midpoint)
+
+    onTouchStart(e) {
+        e.preventDefault();
+
+        if (e.touches.length === 2) {
+            // Two-finger gesture: cancel any single-touch operation and start pan/pinch
+            this.touchActive = false;
+            const t0 = e.touches[0];
+            const t1 = e.touches[1];
+            const rect = this.canvas.getBoundingClientRect();
+            const midX = (t0.clientX + t1.clientX) / 2 - rect.left;
+            const midY = (t0.clientY + t1.clientY) / 2 - rect.top;
+
+            this.isPanning = true;
+            this.panStart = { x: midX, y: midY, viewX: this.viewX, viewY: this.viewY };
+
+            // Record initial pinch distance and zoom for scaling
+            const dx = t1.clientX - t0.clientX;
+            const dy = t1.clientY - t0.clientY;
+            this.touchPinchDist = Math.sqrt(dx * dx + dy * dy);
+            this.touchPinchZoom = this.zoom;
+            return;
+        }
+
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const rect = this.canvas.getBoundingClientRect();
+            const sx = touch.clientX - rect.left;
+            const sy = touch.clientY - rect.top;
+
+            this.touchStartSX = sx;
+            this.touchStartSY = sy;
+            this.touchHasMoved = false;
+            this.touchActive = true;
+
+            // Fire as left mousedown (first tool click)
+            this.onMouseDown({
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                button: 0,
+                shiftKey: false,
+                ctrlKey: false,
+            });
+        }
+    }
+
+    onTouchMove(e) {
+        e.preventDefault();
+
+        if (e.touches.length === 2) {
+            const t0 = e.touches[0];
+            const t1 = e.touches[1];
+            const rect = this.canvas.getBoundingClientRect();
+            const midX = (t0.clientX + t1.clientX) / 2 - rect.left;
+            const midY = (t0.clientY + t1.clientY) / 2 - rect.top;
+
+            // Pan
+            if (this.panStart) {
+                this.viewX = this.panStart.viewX + (midX - this.panStart.x);
+                this.viewY = this.panStart.viewY + (midY - this.panStart.y);
+            }
+
+            // Pinch zoom centred on midpoint
+            if (this.touchPinchDist) {
+                const dx = t1.clientX - t0.clientX;
+                const dy = t1.clientY - t0.clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const scale = dist / this.touchPinchDist;
+
+                const worldBefore = this.screenToWorld(midX, midY);
+                this.zoom = Math.max(10, Math.min(200, this.touchPinchZoom * scale));
+                const worldAfter = this.screenToWorld(midX, midY);
+                this.viewX += (worldAfter.x - worldBefore.x) * this.zoom;
+                this.viewY -= (worldAfter.y - worldBefore.y) * this.zoom;
+                document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
+            }
+
+            this.render();
+            return;
+        }
+
+        if (e.touches.length === 1 && this.touchActive) {
+            const touch = e.touches[0];
+            const rect = this.canvas.getBoundingClientRect();
+            const sx = touch.clientX - rect.left;
+            const sy = touch.clientY - rect.top;
+
+            // Mark as a drag once the finger moves more than 8 screen pixels
+            const dx = sx - this.touchStartSX;
+            const dy = sy - this.touchStartSY;
+            if (Math.sqrt(dx * dx + dy * dy) > 8) {
+                this.touchHasMoved = true;
+            }
+
+            this.onMouseMove({
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                ctrlKey: false,
+                shiftKey: false,
+            });
+        }
+    }
+
+    onTouchEnd(e) {
+        e.preventDefault();
+
+        // End two-finger pan/pinch
+        if (this.isPanning) {
+            this.isPanning = false;
+            this.panStart = null;
+            this.touchPinchDist = null;
+            this.touchPinchZoom = null;
+            this.touchActive = false;
+            return;
+        }
+
+        if (!this.touchActive) return;
+        this.touchActive = false;
+
+        const touch = e.changedTouches[0];
+
+        // Always fire mouseup to clean up drag/move/rotate state
+        this.onMouseUp({
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            button: 0,
+        });
+
+        // For drawing tools: touchend acts as a second tool click to complete the shape.
+        //   - Drag gesture: touchstart places first point, touchend (at drag destination)
+        //     completes the shape — the primary drawing gesture on a tablet.
+        //   - Tap: touchend fires the second click at the same position. For most
+        //     tools this is a no-op or creates a degenerate shape the user can undo,
+        //     while two separate taps (first + second point) still work naturally.
+        // For the select tool: touchend is only mouseup (selection was handled on touchstart).
+        if (this.currentTool !== 'select') {
+            const rect = this.canvas.getBoundingClientRect();
+            const sx = touch.clientX - rect.left;
+            const sy = touch.clientY - rect.top;
+            const world = this.screenToWorld(sx, sy);
+            const snapped = { x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) };
+            this.handleToolClick(snapped, world, false);
+        }
+    }
+    // ── End touch support ─────────────────────────────────────────────────────
+
     onKeyDown(e) {
         // Check if we're in an input field - if so, let default behavior happen
         const activeEl = document.activeElement;
@@ -6636,20 +6815,41 @@ class TikZDrawApp {
         let isDragging = false;
         let startX, startY, startLeft, startTop;
 
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('modal-close')) return;
+        const beginDrag = (clientX, clientY) => {
             isDragging = true;
             const rect = modal.getBoundingClientRect();
-            startX = e.clientX;
-            startY = e.clientY;
+            startX = clientX;
+            startY = clientY;
             startLeft = rect.left;
             startTop = rect.top;
             // Switch from right-positioning to left-positioning
             modal.style.left = rect.left + 'px';
             modal.style.top = rect.top + 'px';
             modal.style.right = 'auto';
+        };
+
+        const moveDrag = (clientX, clientY) => {
+            if (!isDragging) return;
+            let newLeft = startLeft + (clientX - startX);
+            let newTop  = startTop  + (clientY - startY);
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth  - modal.offsetWidth));
+            newTop  = Math.max(0, Math.min(newTop,  window.innerHeight - modal.offsetHeight));
+            modal.style.left = newLeft + 'px';
+            modal.style.top  = newTop  + 'px';
+        };
+
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('modal-close')) return;
+            beginDrag(e.clientX, e.clientY);
             e.preventDefault();
         });
+
+        header.addEventListener('touchstart', (e) => {
+            if (e.target.classList.contains('modal-close')) return;
+            const t = e.touches[0];
+            beginDrag(t.clientX, t.clientY);
+            e.preventDefault();
+        }, { passive: false });
 
         // Double-click to reset position
         header.addEventListener('dblclick', (e) => {
@@ -6658,19 +6858,20 @@ class TikZDrawApp {
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            let newLeft = startLeft + dx;
-            let newTop = startTop + dy;
-            // Constrain to viewport
-            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - modal.offsetWidth));
-            newTop = Math.max(0, Math.min(newTop, window.innerHeight - modal.offsetHeight));
-            modal.style.left = newLeft + 'px';
-            modal.style.top = newTop + 'px';
+            moveDrag(e.clientX, e.clientY);
         });
 
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+            e.preventDefault();
+        }, { passive: false });
+
         document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        document.addEventListener('touchend', () => {
             isDragging = false;
         });
     }
