@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Drawing history regression tests</title>
+<h1>Drawing history regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/drawing-history.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', async () => {
+    const results = document.getElementById('results');
+    const report = [];
+    try {
+        const win = frame.contentWindow;
+        const doc = win.document;
+        const app = win.app;
+        const undo = doc.getElementById('undoBtn');
+        const redo = doc.getElementById('redoBtn');
+        const tool = name => doc.querySelector(`[data-tool="${name}"]`).click();
+        const snapshot = () => JSON.stringify(app.projectDrawing());
+        const a = [0, 0], b = [4, 0], c = [0, 3];
+
+        function check(condition, message) {
+            if (!condition) throw new Error(message);
+        }
+
+        function location([x, y]) {
+            const rect = app.canvas.getBoundingClientRect();
+            const p = app.worldToScreen(x, y);
+            return { clientX: rect.left + p.x, clientY: rect.top + p.y };
+        }
+
+        function click(point, button = 0, shiftKey = false) {
+            for (const type of ['mousedown', 'mouseup']) {
+                app.canvas.dispatchEvent(new win.MouseEvent(type, {
+                    bubbles: true, button, shiftKey, ...location(point)
+                }));
+            }
+        }
+
+        function touch(type, point) {
+            const finger = new win.Touch({ identifier: 1, target: app.canvas, ...location(point) });
+            const active = type === 'touchstart' || type === 'touchmove' ? [finger] : [];
+            app.canvas.dispatchEvent(new win.TouchEvent(type, {
+                bubbles: true, cancelable: true, touches: active, targetTouches: active, changedTouches: [finger]
+            }));
+        }
+
+        function key(key, ctrlKey = false) {
+            doc.dispatchEvent(new win.KeyboardEvent('keydown', { key, ctrlKey, bubbles: true }));
+        }
+
+        function open(points = []) {
+            const objects = points.map(([x, y], i) => ({
+                type: 'TikZCoordinate', id: 'coord_' + (i + 1), name: String.fromCharCode(65 + i),
+                x, y, color: 'black', pointSize: 2, showPoint: true
+            }));
+            app.loadProjectData({ version: '1.0', objects, viewX: 100, viewY: 350, zoom: 45, customColors: {} });
+        }
+
+        function roundTrip(name, points, seeded, expectedCoords) {
+            open(seeded);
+            const before = snapshot();
+            const history = app.undoStack.length;
+            tool(name);
+            for (const p of points) click(p);
+            const shape = app.selectedObjects[0];
+            check(shape?.type === name, name + ' was not completed');
+            const coords = app.objects.filter(obj => obj.type === 'coord');
+            check(coords.length === expectedCoords && new Set(coords.map(obj => obj.name)).size === expectedCoords,
+                name + ' lost or duplicated coordinates');
+            check(app.getObjectCoordinates(shape).every(ref => app.getCoordByName(ref)), name + ' created a dangling reference');
+            check(app.undoStack.length === history + 1, name + ' should add exactly one undo step');
+            check(app.hasUnsavedChanges, name + ' should mark its saved drawing modified');
+            const after = snapshot();
+            undo.click();
+            check(snapshot() === before && !app.hasUnsavedChanges, name + ' undo did not restore the saved drawing');
+            redo.click();
+            check(snapshot() === after && app.hasUnsavedChanges, name + ' redo did not restore the complete shape');
+        }
+
+        roundTrip('line', [a, b], [a, b], 2);
+        roundTrip('line', [a, b], [a], 2);
+        roundTrip('line', [a, b], [b], 2);
+        roundTrip('line', [a, b], [], 2);
+        report.push('PASS  Complete lines reuse either, both or neither endpoint in one undo step');
+
+        open([a, b]);
+        const original = snapshot();
+        tool('select');
+        click(a);
+        tool('line');
+        click(a);
+        const name = doc.querySelector('#propertiesPanel [data-prop="name"]');
+        name.value = 'Origin';
+        name.dispatchEvent(new win.Event('change', { bubbles: true }));
+        const renamed = snapshot();
+        check(renamed !== original && app.hasDrawingDraft, 'Renaming the first endpoint discarded the preview');
+        click(b);
+        check(app.selectedObjects[0]?.from === 'Origin', 'The line retained a stale endpoint name');
+        undo.click();
+        check(snapshot() === renamed, 'Undoing the line also undid the independent rename');
+        undo.click();
+        check(snapshot() === original && !app.hasUnsavedChanges, 'The rename did not retain its own undo step');
+        report.push('PASS  A property edit made during drawing has its own undo step');
+
+        roundTrip('circle', [a, b], [a], 2);
+        roundTrip('arc', [a, b, c], [a], 1);
+        roundTrip('bezier', [a, b], [a, b], 4);
+        roundTrip('path', [a, b, c, a], [a], 3);
+        roundTrip('rect', [a, [4, 3]], [], 0);
+        roundTrip('grid', [a, [4, 3]], [], 0);
+        report.push('PASS  Multi-click shapes and their control points undo and redo together');
+
+        open([a]);
+        const beforePath = snapshot();
+        const pathHistory = app.undoStack.length;
+        tool('path');
+        click(a);
+        click(b);
+        click(c, 0, true);
+        const path = app.selectedObjects[0];
+        check(path?.type === 'path' && !path.closed && path.points.length === 3, 'Shift-click did not finish an open path');
+        check(app.undoStack.length === pathHistory + 1, 'Open path did not create one undo step');
+        const openPath = snapshot();
+        undo.click();
+        check(snapshot() === beforePath, 'Undo left part of an open path');
+        redo.click();
+        check(snapshot() === openPath, 'Redo did not restore the open path');
+        report.push('PASS  Shift-click finishes an open path in one undo step');
+
+        open([a]);
+        const beforeTouch = snapshot();
+        const touchHistory = app.undoStack.length;
+        tool('line');
+        touch('touchstart', a);
+        touch('touchend', a);
+        check(!app.hasUnsavedChanges && app.undoStack.length === touchHistory, 'A single tap completed a two-point tool');
+        touch('touchstart', b);
+        touch('touchend', b);
+        check(app.selectedObjects[0]?.type === 'line' && app.undoStack.length === touchHistory + 1,
+            'Two taps did not commit exactly one line');
+        undo.click();
+        check(snapshot() === beforeTouch, 'Touch line did not undo cleanly');
+        tool('line');
+        touch('touchstart', b);
+        touch('touchmove', c);
+        touch('touchcancel', c);
+        check(snapshot() === beforeTouch && !app.tempPoints.length && !redo.disabled,
+            'Interrupted touch gesture left an endpoint or cleared redo');
+        tool('line');
+        touch('touchstart', b);
+        touch('touchmove', c);
+        touch('touchend', c);
+        check(app.selectedObjects[0]?.type === 'line' && app.undoStack.length === touchHistory + 1,
+            'Dragging a line did not commit both endpoints together');
+        undo.click();
+        check(snapshot() === beforeTouch, 'Undo did not remove a line drawn by dragging');
+        report.push('PASS  Touch taps, drags and interrupted gestures preserve drawing history');
+
+        roundTrip('label', [a], [], 1);
+        roundTrip('label', [a], [a], 1);
+        open([]);
+        const beforeImage = snapshot();
+        const beforePicker = app.undoStack.length;
+        const originalInputClick = win.HTMLInputElement.prototype.click;
+        try {
+            win.HTMLInputElement.prototype.click = function () { this.dispatchEvent(new win.Event('cancel')); };
+            tool('image');
+            click(c);
+        } finally {
+            win.HTMLInputElement.prototype.click = originalInputClick;
+        }
+        check(snapshot() === beforeImage && app.undoStack.length === beforePicker && !app.hasUnsavedChanges,
+            'Cancelling the image picker left an anchor or consumed undo history');
+        report.push('PASS  Labels and their anchors share one undo step; cancelling an image leaves no anchor');
+
+        const cancelWays = [
+            ['Escape', () => key('Escape')],
+            ['right click', () => click(b, 2)],
+            ['tool change', () => tool('circle')],
+            ['Ctrl+Z', () => key('z', true)]
+        ];
+        for (const [name, cancel] of cancelWays) {
+            open([a]);
+            const before = snapshot();
+            tool('point');
+            click(b);
+            const previous = snapshot();
+            undo.click();
+            const history = app.undoStack.length;
+            const future = app.redoStack.length;
+            tool('path');
+            click(a);
+            click(c);
+            check(!app.hasUnsavedChanges, name + ': unfinished path changed the drawing');
+            cancel();
+            check(!app.tempPoints.length && snapshot() === before, name + ': preview or provisional coordinates remained');
+            check(app.undoStack.length === history && app.redoStack.length === future, name + ': cancellation changed history');
+            redo.click();
+            check(snapshot() === previous, name + ': cancellation invalidated the previous redo');
+        }
+        report.push('PASS  Escape, right click, tool change and Ctrl+Z discard a sketch and preserve redo');
+
+        open([]);
+        app.undoStack.length = 0;
+        app.redoStack.length = 0;
+        app.updateUndoRedoButtons();
+        tool('grid');
+        click(a);
+        check(!undo.disabled, 'Toolbar Undo should cancel the first sketch on an empty drawing');
+        undo.click();
+        check(!app.tempPoints.length && undo.disabled && redo.disabled && !app.hasUnsavedChanges,
+            'Cancelling the first sketch should restore empty history and a clean drawing');
+        report.push('PASS  Toolbar Undo cancels a preview with no committed undo history');
+
+        open([a]);
+        tool('line');
+        click(b);
+        const history = app.undoStack.length;
+        const originalSave = app.saveFile;
+        let blob;
+        try {
+            app.saveFile = async value => { blob = value; return { filename: 'preview.json', written: true }; };
+            await app.saveProject();
+        } finally {
+            app.saveFile = originalSave;
+        }
+        const saved = JSON.parse(await blob.text());
+        check(saved.objects.length === 1 && saved.objects[0].name === 'A', 'Saved JSON included a provisional endpoint');
+        click(a);
+        check(app.selectedObjects[0]?.type === 'line' && app.undoStack.length === history + 1 && app.hasUnsavedChanges,
+            'Saving during a sketch prevented it from committing normally');
+        undo.click();
+        check(!app.hasUnsavedChanges && app.objects.length === 1, 'Undo did not restore the saved state after sketch completion');
+        tool('line');
+        click(b);
+        open([c]);
+        check(!app.tempPoints.length && !app.hasUnsavedChanges, 'Opening a project retained a previous sketch');
+        tool('line');
+        click(c);
+        click(b);
+        check(app.objects.length === 3 && app.selectedObjects[0]?.type === 'line',
+            'A new drawing reused coordinates from the previous project');
+        report.push('PASS  Save includes committed objects only; opening a project clears pending geometry');
+        results.dataset.status = 'passed';
+    } catch (error) {
+        report.push('FAIL  ' + error.stack);
+        results.dataset.status = 'failed';
+    }
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>

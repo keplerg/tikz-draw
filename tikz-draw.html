@@ -2343,6 +2343,8 @@ class TikZDrawApp {
         this.touchStartSX = 0;
         this.touchStartSY = 0;
         this.touchHasMoved = false;
+        this.touchDrawingTool = null;
+        this.touchStartedDraft = false;
         this.touchPinchDist = null;
         this.touchPinchZoom = null;
 
@@ -2666,11 +2668,10 @@ class TikZDrawApp {
         // Tool buttons
         document.querySelectorAll('.tool').forEach(btn => {
             btn.addEventListener('click', () => {
+                this.cancelDrawing();
                 document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.currentTool = btn.dataset.tool;
-                this.toolState = null;
-                this.tempPoints = [];
                 this.updateStatusTip();
                 this.updateCursor();
                 this.render();
@@ -2778,9 +2779,14 @@ class TikZDrawApp {
     }
 
     addObject(obj, beforeObject = null) {
-        // Save state for undo
         this.saveState();
+        this.insertObject(obj, beforeObject);
+        this.updateObjectList();
+        this.render();
+        return obj;
+    }
 
+    insertObject(obj, beforeObject = null) {
         // Keep coordinates grouped at the top of the list
         if (obj instanceof TikZCoordinate && obj.showPoint === false && (!obj.label || obj.label.length == 0)) {
             // Find the last coordinate index
@@ -2797,10 +2803,7 @@ class TikZDrawApp {
         } else {
             this.objects.push(obj);
         }
-        this.updateObjectList();
-        this.updateObjectCount();
-        this.render();
-        return obj;
+        if (obj instanceof TikZCoordinate) this._invalidateCoordMap();
     }
 
     removeObject(obj) {
@@ -3397,20 +3400,14 @@ class TikZDrawApp {
         return coordsToMove;
     }
 
-    generateCoordName() {
+    generateCoordName(reserved = new Set()) {
         const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        let index = 0;
-        
-        while (true) {
-            let name;
-            if (index < 26) {
-                name = letters[index];
-            } else {
-                name = letters[Math.floor(index / 26) - 1] + letters[index % 26];
+        for (let index = 1; ; index++) {
+            let name = '';
+            for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) {
+                name = letters[(n - 1) % 26] + name;
             }
-            
-            if (!this.getCoordByName(name)) return name;
-            index++;
+            if (!reserved.has(name) && !this.getCoordByName(name)) return name;
         }
     }
     
@@ -3435,15 +3432,13 @@ class TikZDrawApp {
         
         // Right click to cancel
         if (e.button === 2) {
-            this.toolState = null;
-            this.tempPoints = [];
-            this.render();
+            this.cancelDrawing();
             return;
         }
         
         // Left click actions based on tool
         if (e.button === 0) {
-            this.handleToolClick(snapped, world, ctrl_click);
+            this.handleToolClick(snapped, world, ctrl_click, e.shiftKey);
         }
     }
     
@@ -3649,7 +3644,6 @@ class TikZDrawApp {
         // Update temp drawing for tools
         if (this.tempPoints.length > 0) {
             this.render();
-            this.drawTempGeometry(snapped);
         }
     }
 
@@ -3760,6 +3754,8 @@ class TikZDrawApp {
 
         if (e.touches.length === 2) {
             // Two-finger gesture: cancel any single-touch operation and start pan/pinch
+            if (this.touchStartedDraft) this.cancelDrawing();
+            this.touchDrawingTool = null;
             this.touchActive = false;
             const t0 = e.touches[0];
             const t1 = e.touches[1];
@@ -3788,6 +3784,12 @@ class TikZDrawApp {
             this.touchStartSY = sy;
             this.touchHasMoved = false;
             this.touchActive = true;
+            this.touchStartedDraft = false;
+            // Wait for release before accepting a drawing tap. A second finger or
+            // touchcancel can then interrupt it without completing a shape.
+            this.touchDrawingTool = ['line', 'vector', 'circle', 'arc', 'rect', 'grid', 'path', 'bezier']
+                .includes(this.currentTool) ? this.currentTool : null;
+            if (this.touchDrawingTool) return;
 
             // Fire as left mousedown (first tool click)
             this.onMouseDown({
@@ -3844,8 +3846,13 @@ class TikZDrawApp {
             // Mark as a drag once the finger moves more than 8 screen pixels
             const dx = sx - this.touchStartSX;
             const dy = sy - this.touchStartSY;
-            if (Math.sqrt(dx * dx + dy * dy) > 8) {
+            if (!this.touchHasMoved && Math.hypot(dx, dy) > 8) {
                 this.touchHasMoved = true;
+                if (this.touchDrawingTool && this.touchDrawingTool === this.currentTool && !this.tempPoints.length) {
+                    const world = this.screenToWorld(this.touchStartSX, this.touchStartSY);
+                    this.handleToolClick({ x: this.snapToGrid(world.x), y: this.snapToGrid(world.y) }, world, false);
+                    this.touchStartedDraft = true;
+                }
             }
 
             this.onMouseMove({
@@ -3859,6 +3866,7 @@ class TikZDrawApp {
 
     onTouchEnd(e) {
         e.preventDefault();
+        if (e.type === 'touchcancel') this.cancelDrawing();
 
         // End two-finger pan/pinch
         if (this.isPanning) {
@@ -3882,14 +3890,12 @@ class TikZDrawApp {
             button: 0,
         });
 
-        // For drawing tools: touchend acts as a second tool click to complete the shape.
-        //   - Drag gesture: touchstart places first point, touchend (at drag destination)
-        //     completes the shape — the primary drawing gesture on a tablet.
-        //   - Tap: touchend fires the second click at the same position. For most
-        //     tools this is a no-op or creates a degenerate shape the user can undo,
-        //     while two separate taps (first + second point) still work naturally.
-        // For the select tool: touchend is only mouseup (selection was handled on touchstart).
-        if (this.currentTool !== 'select') {
+        // One tap supplies one vertex. A drag from an empty draft also supplied
+        // its starting point on the first move.
+        const drawingTool = this.touchDrawingTool;
+        this.touchDrawingTool = null;
+        this.touchStartedDraft = false;
+        if (drawingTool && drawingTool === this.currentTool && e.type !== 'touchcancel') {
             const rect = this.canvas.getBoundingClientRect();
             const sx = touch.clientX - rect.left;
             const sy = touch.clientY - rect.top;
@@ -4015,8 +4021,7 @@ class TikZDrawApp {
 
         // Escape
         if (e.key === 'Escape') {
-            this.toolState = null;
-            this.tempPoints = [];
+            if (this.cancelDrawing()) return;
             this.selectedObjects = [];
             this.updatePropertiesPanel();
             this.updateObjectList();
@@ -4079,7 +4084,7 @@ class TikZDrawApp {
     // Tool Handling
     // ========================================================================
     
-    handleToolClick(snapped, world, ctrl_click) {
+    handleToolClick(snapped, world, ctrl_click, shift = false) {
         switch (this.currentTool) {
             case 'select':
                 this.handleSelectClick(world, ctrl_click);
@@ -4116,7 +4121,7 @@ class TikZDrawApp {
                 this.handleImageClick(snapped);
                 break;
             case 'path':
-                this.handlePathClick(snapped);
+                this.handlePathClick(snapped, shift);
                 break;
             case 'bezier':
                 this.handleBezierClick(snapped);
@@ -4409,6 +4414,76 @@ class TikZDrawApp {
         }
     }
 
+    get hasDrawingDraft() {
+        return this.tempPoints.length > 0 || !!this.toolState;
+    }
+
+    cancelDrawing() {
+        this.touchDrawingTool = null;
+        this.touchStartedDraft = false;
+        if (!this.hasDrawingDraft) return false;
+        this.tempPoints = [];
+        this.toolState = null;
+        this.updateUndoRedoButtons();
+        this.render();
+        return true;
+    }
+
+    previewDrawing(point, cursor = point) {
+        this.tempPoints.push(point);
+        this.lastSnapped = cursor;
+        this.updateUndoRedoButtons();
+        this.render();
+    }
+
+    drawingPoint(snapped) {
+        let closest = this.findCoordNear(snapped.x, snapped.y);
+        let distance = closest ? Math.hypot(closest.x - snapped.x, closest.y - snapped.y) : 0.3;
+        for (const point of this.tempPoints) {
+            const d = Math.hypot(point.x - snapped.x, point.y - snapped.y);
+            if (d < distance) {
+                closest = point;
+                distance = d;
+            }
+        }
+        return closest || snapped;
+    }
+
+    // Allocate new coordinates only when the user completes the shape. Reusing a
+    // draft vertex (e.g. the endpoints of a loop) must resolve to just one coordinate.
+    finishCoordinateDrawing(points, createShape) {
+        const created = new Map();
+        const reserved = new Set();
+        if (points.some(p => p instanceof TikZCoordinate && this.getCoordByName(p.name) !== p)) {
+            this.cancelDrawing();
+            this.showToast('Drawing cancelled because a boundary point was removed.');
+            return;
+        }
+        const names = points.map(p => {
+            if (p instanceof TikZCoordinate) return p.name;
+            if (!created.has(p)) {
+                const name = this.generateCoordName(reserved);
+                reserved.add(name);
+                created.set(p, new TikZCoordinate(p.x, p.y, name));
+            }
+            return created.get(p).name;
+        });
+        this.finishDrawing(createShape(names), [...created.values()]);
+    }
+
+    finishDrawing(obj, newCoordinates = []) {
+        this.saveState();
+        for (const coord of newCoordinates) this.insertObject(coord);
+        this.insertObject(obj);
+        this.tempPoints = [];
+        this.selectedObjects = [obj];
+        this.switchToSelectMode();
+        this.updatePropertiesPanel();
+        this.updateObjectList();
+        this.updateUndoRedoButtons();
+        this.render();
+    }
+
     switchToSelectMode() {
         this.currentTool = 'select';
         this.toolState = null;
@@ -4517,339 +4592,145 @@ class TikZDrawApp {
     }
 
     handleLineClick(snapped) {
-        // Try to find existing coordinate nearby
-        let coord = this.findCoordNear(snapped.x, snapped.y);
-        
-        if (!coord) {
-            // Create new coordinate
-            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(coord);
-        }
-        
-        this.tempPoints.push(coord.name);
-        
-        if (this.tempPoints.length === 2) {
-            // Create line segment
-            const obj = new TikZSegment(this.tempPoints[0], this.tempPoints[1]);
-            this.addObject(obj);
-            this.selectedObjects = [obj];
-            this.tempPoints = [];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        }
-
-        this.render();
+        const point = this.drawingPoint(snapped);
+        if (!this.tempPoints.length) return this.previewDrawing(point);
+        this.finishCoordinateDrawing([this.tempPoints[0], point], ([a, b]) => new TikZSegment(a, b));
     }
 
     handleCircleClick(snapped) {
-        if (this.tempPoints.length === 0) {
-            // First click: center
-            let coord = this.findCoordNear(snapped.x, snapped.y);
-            if (!coord) {
-                coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-                this.addObject(coord);
-            }
-            this.tempPoints.push({ name: coord.name, x: coord.x, y: coord.y });
-        } else {
-            // Second click: radius point
-            const center = this.tempPoints[0];
-            const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
-
-            // Create a second center point at the same location (for potential ellipse)
-            const center2 = new TikZCoordinate(center.x, center.y, this.generateCoordName());
-            this.addObject(center2);
-
-            const circle = new TikZCircle(center.name, Math.max(0.1, radius), center2.name);
-            this.addObject(circle);
-            this.selectedObjects = [circle];
-            this.tempPoints = [];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        }
-
-        this.render();
+        if (!this.tempPoints.length) return this.previewDrawing(this.drawingPoint(snapped));
+        const center = this.tempPoints[0];
+        const radius = Math.max(0.1, Math.hypot(snapped.x - center.x, snapped.y - center.y));
+        // Separate, coincident foci let the user turn the circle into an ellipse.
+        this.finishCoordinateDrawing([center, { x: center.x, y: center.y }],
+            ([a, b]) => new TikZCircle(a, radius, b));
     }
 
     handleArcClick(snapped) {
-        if (this.tempPoints.length === 0) {
-            // First click: center
-            let coord = this.findCoordNear(snapped.x, snapped.y);
-            if (!coord) {
-                coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-                this.addObject(coord);
-            }
-            this.tempPoints.push({ name: coord.name, x: coord.x, y: coord.y });
-        } else if (this.tempPoints.length === 1) {
-            // Second click: start angle and radius
-            const center = this.tempPoints[0];
+        if (!this.tempPoints.length) return this.previewDrawing(this.drawingPoint(snapped));
+        const center = this.tempPoints[0];
+        const angle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
+        if (this.tempPoints.length === 1) {
             const radius = Math.hypot(snapped.x - center.x, snapped.y - center.y);
-            const startAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
-            this.tempPoints.push({ radius, startAngle });
-        } else {
-            // Third click: end angle
-            const center = this.tempPoints[0];
-            const { radius, startAngle } = this.tempPoints[1];
-            const endAngle = Math.atan2(snapped.y - center.y, snapped.x - center.x) * 180 / Math.PI;
-
-            const arc = new TikZArc(center.name, radius, startAngle, endAngle);
-            this.addObject(arc);
-            this.selectedObjects = [arc];
-            this.tempPoints = [];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
+            return this.previewDrawing({ radius, startAngle: angle }, snapped);
         }
+        const { radius, startAngle } = this.tempPoints[1];
+        this.finishCoordinateDrawing([center], ([name]) => new TikZArc(name, radius, startAngle, angle));
+    }
 
-        this.render();
+    handleBoundsClick(snapped, Shape) {
+        if (!this.tempPoints.length) return this.previewDrawing(snapped);
+        const start = this.tempPoints[0];
+        this.finishDrawing(new Shape(Math.min(start.x, snapped.x), Math.min(start.y, snapped.y),
+                                     Math.max(start.x, snapped.x), Math.max(start.y, snapped.y)));
     }
 
     handleRectClick(snapped) {
-        if (this.tempPoints.length === 0) {
-            this.tempPoints.push({ x: snapped.x, y: snapped.y });
-        } else {
-            const p1 = this.tempPoints[0];
-            const rect = new TikZRectangle(
-                Math.min(p1.x, snapped.x),
-                Math.min(p1.y, snapped.y),
-                Math.max(p1.x, snapped.x),
-                Math.max(p1.y, snapped.y)
-            );
-            this.addObject(rect);
-            this.selectedObjects = [rect];
-            this.tempPoints = [];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        }
-
-        this.render();
+        this.handleBoundsClick(snapped, TikZRectangle);
     }
 
     handleLabelClick(snapped) {
-        // Attach to nearest coordinate
-        const coord = this.findCoordNear(snapped.x, snapped.y, 1.0);
-        
-        if (coord) {
-            const label = new TikZLabel(coord.name, '$x$');
-            this.addObject(label);
-            this.selectedObjects = [label];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        } else {
-            // Create coordinate first
-            const newCoord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(newCoord);
-            const label = new TikZLabel(newCoord.name, '$x$');
-            this.addObject(label);
-            this.selectedObjects = [label];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        }
-
-        this.render();
+        const existing = this.findCoordNear(snapped.x, snapped.y, 1.0);
+        const anchor = existing || new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
+        this.finishDrawing(new TikZLabel(anchor.name, '$x$'), existing ? [] : [anchor]);
     }
 
     handleImageClick(snapped) {
-        // Create or find coordinate at click position
-        let coord = this.findCoordNear(snapped.x, snapped.y, 1.0);
-        if (!coord) {
-            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(coord);
-        }
-
-        // Open file picker
+        const request = {
+            x: snapped.x, y: snapped.y,
+            anchor: this.findCoordNear(snapped.x, snapped.y, 1.0),
+            generation: this.projectGeneration
+        };
+        this.toolState = request;
+        this.updateUndoRedoButtons();
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/png,image/jpeg,image/jpg,image/svg+xml';
-
-        input.addEventListener('change', e => {
-            const file = e.target.files[0];
-            if (file) {
-                this.loadImageFile(file, coord.name);
-            }
+        input.addEventListener('cancel', () => this.endImageRequest(request));
+        input.addEventListener('change', () => {
+            const file = input.files[0];
+            if (file) this.loadImageFile(file, request);
+            else this.endImageRequest(request);
         });
-
         input.click();
     }
 
-    loadImageFile(file, coordName) {
-        // Validate file size (warn if > 5MB)
+    endImageRequest(request, error) {
+        if (this.toolState !== request) return;
+        this.cancelDrawing();
+        if (error) this.showToast(error, 'error');
+    }
+
+    loadImageFile(file, request) {
+        const isCurrent = () => this.toolState === request && this.currentTool === 'image' &&
+                                this.projectGeneration === request.generation;
+        if (!isCurrent()) return;
         if (file.size > 5 * 1024 * 1024) {
             const proceed = confirm(
                 `This image is ${Number((file.size / 1024 / 1024).toFixed(1))}MB. ` +
                 `Large images will increase project file size. Continue?`
             );
-            if (!proceed) return;
+            if (!proceed) {
+                this.endImageRequest(request);
+                return;
+            }
         }
 
         const reader = new FileReader();
         reader.onload = event => {
+            if (!isCurrent()) return;
             const dataUrl = event.target.result;
-
-            // Load image to get natural dimensions
             const img = new Image();
             img.onload = () => {
-                const aspect = img.naturalWidth / img.naturalHeight;
-
-                // Create TikZImage object
-                const tikzImg = new TikZImage(
-                    coordName,
-                    dataUrl,
-                    file.name,
-                    file.type
-                );
-                tikzImg.naturalAspect = aspect;
+                if (!isCurrent()) return;
+                if (request.anchor && !this.objects.includes(request.anchor)) {
+                    this.endImageRequest(request, 'The selected image anchor no longer exists.');
+                    return;
+                }
+                const existing = request.anchor || this.findCoordNear(request.x, request.y, 1.0);
+                const anchor = existing || new TikZCoordinate(request.x, request.y, this.generateCoordName());
+                const tikzImg = new TikZImage(anchor.name, dataUrl, file.name, file.type);
+                tikzImg.naturalAspect = img.naturalWidth / img.naturalHeight;
                 tikzImg.cachedImage = img;
-
-                this.saveState(); // For undo
-                this.addObject(tikzImg);
-                this.selectedObjects = [tikzImg];
-                this.switchToSelectMode();
-                this.updatePropertiesPanel();
-                this.updateObjectList();
-                this.updateUndoRedoButtons();
-                this.render();
-
+                this.finishDrawing(tikzImg, existing ? [] : [anchor]);
                 this.showToast(`Image "${file.name}" added!`, 'success');
             };
-
-            img.onerror = () => {
-                this.showToast('Failed to load image', 'error');
-            };
-
+            img.onerror = () => this.endImageRequest(request, 'Failed to load image');
             img.src = dataUrl;
         };
-
-        reader.onerror = () => {
-            this.showToast('Failed to read image file', 'error');
-        };
-
+        reader.onerror = () => this.endImageRequest(request, 'Failed to read image file');
         reader.readAsDataURL(file);
     }
 
-    handlePathClick(snapped) {
-        let coord = this.findCoordNear(snapped.x, snapped.y);
-        if (!coord) {
-            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(coord);
-        }
-
-        // Check if closing the path (clicking first point again)
-        if (this.tempPoints.length >= 3 && coord.name === this.tempPoints[0]) {
-            const path = new TikZPath([...this.tempPoints]);
-            path.closed = true;
-            this.addObject(path);
-            this.selectedObjects = [path];
-            this.tempPoints = [];
-            this.switchToSelectMode();
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        } else {
-            this.tempPoints.push(coord.name);
-
-            // Double-click or shift+click to finish open path
-            if (this.tempPoints.length >= 2 && this.toolState === 'finishing') {
-                const path = new TikZPath([...this.tempPoints]);
-                this.addObject(path);
-                this.selectedObjects = [path];
-                this.tempPoints = [];
-                this.toolState = null;
-                this.switchToSelectMode();
-                this.updatePropertiesPanel();
-                this.updateObjectList();
-                this.updateUndoRedoButtons();
-            }
-        }
-
-        this.render();
-
-        // Keep showing temp geometry after click
-        if (this.tempPoints.length > 0) {
-            this.drawTempGeometry(snapped);
-        }
+    handlePathClick(snapped, finishOpen = false) {
+        const point = this.drawingPoint(snapped);
+        const closed = this.tempPoints.length >= 3 && point === this.tempPoints[0];
+        if (!closed && !(this.tempPoints.length && finishOpen)) return this.previewDrawing(point);
+        const vertices = closed ? this.tempPoints : [...this.tempPoints, point];
+        this.finishCoordinateDrawing(vertices, names => {
+            const path = new TikZPath(names);
+            path.closed = closed;
+            return path;
+        });
     }
-    
+
     handleBezierClick(snapped) {
-        let coord = this.findCoordNear(snapped.x, snapped.y);
-        if (!coord) {
-            coord = new TikZCoordinate(snapped.x, snapped.y, this.generateCoordName());
-            this.addObject(coord);
-        }
-
-        this.tempPoints.push(coord.name);
-
-        if (this.tempPoints.length === 2) {
-            // Get start and end coordinates
-            const fromCoord = this.getCoordByName(this.tempPoints[0]);
-            const toCoord = this.getCoordByName(this.tempPoints[1]);
-
-            if (fromCoord && toCoord) {
-                // Calculate control points offset perpendicular to the line
-                const dx = toCoord.x - fromCoord.x;
-                const dy = toCoord.y - fromCoord.y;
-                // Coincident endpoints form a loop with two distinct, draggable handles.
-                const loop = dx === 0 && dy === 0;
-                const c1x = fromCoord.x + (loop ? 1.5 : dx / 3 - 0.4 * dy);
-                const c2x = fromCoord.x + (loop ? -1.5 : 2 * dx / 3 - 0.4 * dy);
-                const c1y = fromCoord.y + (loop ? 2 : dy / 3 + 0.4 * dx);
-                const c2y = fromCoord.y + (loop ? 2 : 2 * dy / 3 + 0.4 * dx);
-
-                // Create control point coordinates (hidden by default)
-                const ctrl1 = new TikZCoordinate(c1x, c1y, this.generateCoordName());
-                ctrl1.showPoint = false;
-                this.addObject(ctrl1);
-
-                const ctrl2 = new TikZCoordinate(c2x, c2y, this.generateCoordName());
-                ctrl2.showPoint = false;
-                this.addObject(ctrl2);
-
-                // Create the bezier curve
-                const bezier = new TikZBezier(this.tempPoints[0], ctrl1.name, ctrl2.name, this.tempPoints[1]);
-                this.addObject(bezier);
-                this.selectedObjects = [bezier];
-                this.tempPoints = [];
-                this.switchToSelectMode();
-                this.updatePropertiesPanel();
-                this.updateObjectList();
-                this.updateUndoRedoButtons();
-            }
-        }
-
-        this.render();
+        const end = this.drawingPoint(snapped);
+        if (!this.tempPoints.length) return this.previewDrawing(end);
+        const start = this.tempPoints[0];
+        const dx = end.x - start.x, dy = end.y - start.y;
+        // Coincident endpoints form a loop with two distinct, draggable handles.
+        const loop = dx === 0 && dy === 0;
+        const c1 = { x: start.x + (loop ? 1.5 : dx / 3 - 0.4 * dy),
+                     y: start.y + (loop ? 2 : dy / 3 + 0.4 * dx) };
+        const c2 = { x: start.x + (loop ? -1.5 : 2 * dx / 3 - 0.4 * dy),
+                     y: start.y + (loop ? 2 : 2 * dy / 3 + 0.4 * dx) };
+        this.finishCoordinateDrawing([start, end, c1, c2],
+            ([a, b, control1, control2]) => new TikZBezier(a, control1, control2, b));
     }
 
     handleGridClick(snapped) {
-        if (this.tempPoints.length === 0) {
-            this.tempPoints.push({ x: snapped.x, y: snapped.y });
-        } else {
-            const p1 = this.tempPoints[0];
-            const grid = new TikZGrid(
-                Math.min(p1.x, snapped.x),
-                Math.min(p1.y, snapped.y),
-                Math.max(p1.x, snapped.x),
-                Math.max(p1.y, snapped.y)
-            );
-            this.addObject(grid);
-            this.selectedObjects = [grid];
-            this.switchToSelectMode();
-            this.tempPoints = [];
-            this.updatePropertiesPanel();
-            this.updateObjectList();
-            this.updateUndoRedoButtons();
-        }
-
-        this.render();
+        this.handleBoundsClick(snapped, TikZGrid);
     }
 
     updateStatusTip() {
@@ -4864,7 +4745,7 @@ class TikZDrawApp {
             'arc': 'Click center, start point, then end point',
             'rect': 'Click two opposite corners',
             'label': 'Click near a point to add a label',
-            'path': 'Click points, click first point to close',
+            'path': 'Click the first point to close, or Shift-click the last point for an open path',
             'bezier': 'Click start point, then end point. Drag control points to shape curve.',
             'grid': 'Click two corners for grid area',
             'image': 'Click to place image anchor point'
@@ -6459,7 +6340,7 @@ class TikZDrawApp {
         
         if (this.currentTool === 'line' || this.currentTool === 'vector') {
             if (this.tempPoints.length === 1) {
-                const from = this.getCoordByName(this.tempPoints[0]);
+                const from = this.tempPoints[0];
                 if (from) {
                     const p1 = this.worldToScreen(from.x, from.y);
                     const p2 = this.worldToScreen(snapped.x, snapped.y);
@@ -6543,7 +6424,7 @@ class TikZDrawApp {
             if (this.tempPoints.length >= 1) {
                 ctx.beginPath();
                 for (let i = 0; i < this.tempPoints.length; i++) {
-                    const coord = this.getCoordByName(this.tempPoints[i]);
+                    const coord = this.tempPoints[i];
                     if (coord) {
                         const p = this.worldToScreen(coord.x, coord.y);
                         if (i === 0) ctx.moveTo(p.x, p.y);
@@ -6558,7 +6439,7 @@ class TikZDrawApp {
         else if (this.currentTool === 'bezier') {
             if (this.tempPoints.length === 1) {
                 // Drawing line from start to end point preview
-                const from = this.getCoordByName(this.tempPoints[0]);
+                const from = this.tempPoints[0];
                 if (from) {
                     const p1 = this.worldToScreen(from.x, from.y);
                     const p2 = this.worldToScreen(snapped.x, snapped.y);
@@ -6581,6 +6462,13 @@ class TikZDrawApp {
         }
         
         ctx.setLineDash([]);
+        for (const point of this.tempPoints) {
+            if (point.x === undefined) continue; // Arc angle/radius preview has no position.
+            const p = this.worldToScreen(point.x, point.y);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+        }
     }
     
     // ========================================================================
@@ -7769,10 +7657,8 @@ class TikZDrawApp {
                 }
             }
             // Also preserve coordinates being used in temporary path/line creation
-            for (const name of this.tempPoints) {
-                if (typeof name === 'string') {
-                    usedCoords.add(name);
-                }
+            for (const point of this.tempPoints) {
+                if (point instanceof TikZCoordinate) usedCoords.add(point.name);
             }
             // Remove unused coordinates (not visible, no label, not referenced)
             const toRemove = this.objects.filter(obj =>
@@ -8863,6 +8749,7 @@ class TikZDrawApp {
         }
 
         // Save state for undo (so user can undo the file load)
+        this.cancelDrawing();
         this.saveState();
 
         // Reset
@@ -9016,7 +8903,7 @@ class TikZDrawApp {
                     obj.fillOpacity = data.fillOpacity;
                     obj.pattern = data.pattern || 'none';
                     obj.rotation = data.rotation || 0;
-                    obj.rotationCenter = data.rotationCenter || null;
+                    if (data.rotationCenter !== undefined) obj.rotationCenter = data.rotationCenter;
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZPath':
@@ -9117,9 +9004,6 @@ class TikZDrawApp {
 
     // Undo/Redo functionality
     saveState() {
-        // Don't save if we're in the middle of a multi-step tool operation
-        if (this.tempPoints.length > 0) return;
-
         // Limit history size
         let needsCleanup = false;
         if (this.undoStack.length >= this.maxHistory) {
@@ -9153,6 +9037,7 @@ class TikZDrawApp {
     }
 
     undo() {
+        if (this.cancelDrawing()) return;
         if (this.undoStack.length === 0) return;
 
         // Save current state to redo stack
@@ -9172,6 +9057,7 @@ class TikZDrawApp {
 
     redo() {
         if (this.redoStack.length === 0) return;
+        this.cancelDrawing();
 
         // Save current to undo
         const currentState = {
@@ -9399,7 +9285,8 @@ class TikZDrawApp {
         }
 
         if (this._undoBtn) {
-            this._undoBtn.disabled = this.undoStack.length === 0;
+            this._undoBtn.disabled = this.undoStack.length === 0 && !this.hasDrawingDraft;
+            this._undoBtn.title = this.hasDrawingDraft ? 'Cancel drawing preview (Ctrl+Z)' : 'Undo (Ctrl+Z)';
         }
         if (this._redoBtn) {
             this._redoBtn.disabled = this.redoStack.length === 0;
