@@ -63,7 +63,7 @@ start tikz-draw.html      # Windows
 | Rectangle | B | Draw rectangles |
 | Label | T | Add text/LaTeX labels at points |
 | Image | I | Embed images (PNG/JPG/GIF) with scaling and rotation |
-| Path | H | Draw multi-point paths |
+| Path | H | Click the first vertex to close a path, or Shift-click the last vertex to finish an open path |
 | Curve | Q | Draw Bézier curves |
 | Grid | G | Add a coordinate grid |
 
@@ -246,7 +246,7 @@ The exported TikZ code is clean and well-organized:
 |-----|--------|
 | **Ctrl+C** | Copy selected object(s) |
 | **Ctrl+V** | Paste (with 0.5 unit offset) - maintains relationships |
-| **Ctrl+Z** | Undo |
+| **Ctrl+Z** | Undo the last edit, or cancel the current drawing preview |
 | **Ctrl+Y** or **Ctrl+Shift+Z** | Redo |
 | **Delete** / **Backspace** | Delete selected object(s) |
 | **Escape** | Clear selection / Cancel operation |
@@ -355,7 +355,8 @@ Project files preserve all objects, positions, styles, and view settings.
 - **Patterns**: Combine fill colors with patterns for visual variety. Pattern color matches the fill color
 - **Point Labels**: Points can have both an editor name (shown in gray) and an export label (rendered in LaTeX)
 - **Hide Invisible Points**: Toggle checkbox to hide/show coordinate points that aren't marked as visible
-- **Undo/Redo**: Don't worry about mistakes - every action can be undone with Ctrl+Z
+- **Undo/Redo**: Creating a shape takes one undo step, including any endpoints or control points created with it. For example, undoing a line between two existing points removes the line and keeps both points. Redo restores the shape.
+- **Unfinished drawings**: Escape, right-click, Undo, or switching tools cancels the preview and preserves the previous history. Saving or exporting during a preview includes only completed objects.
 
 ## Browser Compatibility
 
