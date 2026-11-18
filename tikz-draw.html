@@ -1096,6 +1096,29 @@ function tikzPoint(point, minDecimals = 0) {
     return `(${tikzNumber(point.x, minDecimals)}, ${tikzNumber(point.y, minDecimals)})`;
 }
 
+function arrowTips(spec) {
+    const [start, end] = (spec || '').split('-');
+    const names = { '<': 'To', '>': 'To', latex: 'Latex', Latex: 'Latex', Stealth: 'Stealth' };
+    return { start: names[start] || '', end: names[end] || '' };
+}
+
+function strokeOptions({ arrowEnd, arrowSize = 1, color, thickness, lineStyle }) {
+    const options = [];
+    if (arrowEnd && arrowEnd !== 'none') {
+        if (Number(arrowSize) === 1) {
+            options.push(arrowEnd);
+        } else {
+            const { start, end } = arrowTips(arrowEnd);
+            const scaled = tip => tip ? `{${tip}[scale=${arrowSize}]}` : '';
+            options.push(start || end ? `${scaled(start)}-${scaled(end)}` : arrowEnd);
+        }
+    }
+    if (color && color !== 'black') options.push(color);
+    if (thickness && thickness !== 'thin') options.push(thickness);
+    if (lineStyle && lineStyle !== 'solid') options.push(lineStyle);
+    return options;
+}
+
 class TikZObject {
     constructor(type) {
         this.id = generateId(type);
@@ -1157,20 +1180,7 @@ class TikZSegment extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-
-        // Arrow specification (if any)
-        if (this.arrowEnd && this.arrowEnd !== 'none') {
-            opts.push(this.arrowEnd);
-            if (this.arrowSize !== 1.0) {
-                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
-                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
-            }
-        }
-
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        const opts = strokeOptions(this);
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         let nodeStr = this.nodes.map(n => n.toTikZ()).join(' ');
@@ -1204,19 +1214,7 @@ class TikZVector extends TikZObject {
     }
     
     toTikZ() {
-        let opts = [];
-        
-        // Arrow specification
-        opts.push(this.arrowEnd);
-        
-        // Arrow size if not default
-        if (this.arrowSize !== 1.0) {
-            opts.push(`>={${this.arrowType}[scale=${this.arrowSize}]}`);
-        }
-        
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        const opts = strokeOptions(this);
         
         let optStr = `[${opts.join(', ')}]`;
         let nodeStr = this.nodes.map(n => n.toTikZ()).join(' ');
@@ -1287,11 +1285,7 @@ class TikZCircle extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle === 'dashed') opts.push('dashed');
-        if (this.lineStyle === 'dotted') opts.push('dotted');
+        const opts = strokeOptions(this);
 
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
@@ -1324,11 +1318,7 @@ class TikZCircle extends TikZObject {
 
     // Generate TikZ with access to coordinate lookup
     toTikZWithCoords(getCoordByName) {
-        let opts = [];
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle === 'dashed') opts.push('dashed');
-        if (this.lineStyle === 'dotted') opts.push('dotted');
+        const opts = strokeOptions(this);
 
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
@@ -1383,21 +1373,7 @@ class TikZArc extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-
-        // Arrow specification (if any)
-        if (this.arrowEnd && this.arrowEnd !== 'none') {
-            opts.push(this.arrowEnd);
-            if (this.arrowSize !== 1.0) {
-                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
-                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
-            }
-        }
-
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle === 'dashed') opts.push('dashed');
-        if (this.lineStyle === 'dotted') opts.push('dotted');
+        const opts = strokeOptions(this);
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
 
@@ -1428,11 +1404,7 @@ class TikZRectangle extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle === 'dashed') opts.push('dashed');
-        if (this.lineStyle === 'dotted') opts.push('dotted');
+        const opts = strokeOptions(this);
         if (this.rotation !== 0) {
             const center = tikzPoint({x: (this.xMin + this.xMax) / 2, y: (this.yMin + this.yMax) / 2}, 2);
             opts.push(`rotate around={${tikzNumber(this.rotation, 1)}:${center}}`);
@@ -1533,11 +1505,7 @@ class TikZPath extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle === 'dashed') opts.push('dashed');
-        if (this.lineStyle === 'dotted') opts.push('dotted');
+        const opts = strokeOptions(this);
 
         let cmd = '\\draw';
         if (this.fill !== undefined && this.fill !== 'none') {
@@ -1630,20 +1598,7 @@ class TikZBezier extends TikZObject {
     }
 
     toTikZ() {
-        let opts = [];
-
-        // Arrow specification (if any)
-        if (this.arrowEnd && this.arrowEnd !== 'none') {
-            opts.push(this.arrowEnd);
-            if (this.arrowSize !== 1.0) {
-                const arrowType = this.arrowEnd.includes('latex') ? 'latex' : 'Stealth';
-                opts.push(`>={${arrowType}[scale=${this.arrowSize}]}`);
-            }
-        }
-
-        if (this.color !== 'black') opts.push(this.color);
-        if (this.thickness !== 'thin') opts.push(this.thickness);
-        if (this.lineStyle !== 'solid') opts.push(this.lineStyle);
+        const opts = strokeOptions(this);
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
 
@@ -5015,11 +4970,8 @@ class TikZDrawApp {
         else if (obj instanceof TikZCoordinate) {
             this.drawCoordinate(obj);
         }
-        else if (obj instanceof TikZSegment) {
+        else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
             this.drawSegment(obj);
-        }
-        else if (obj instanceof TikZVector) {
-            this.drawVector(obj);
         }
         else if (obj instanceof TikZCircle) {
             this.drawCircle(obj);
@@ -5107,12 +5059,12 @@ class TikZDrawApp {
         if (seg.arrowEnd && seg.arrowEnd !== 'none') {
             const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
             const arrowSize = 10 * (seg.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = this.parseArrowSpec(seg.arrowEnd);
+            const arrows = arrowTips(seg.arrowEnd);
             if (arrows.end) {
-                this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
+                this.drawArrowhead(p2.x, p2.y, angle, arrowSize, arrows.end);
             }
             if (arrows.start) {
-                this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize);
+                this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize, arrows.start);
             }
         }
 
@@ -5130,13 +5082,6 @@ class TikZDrawApp {
             const angle = node.sloped ? lineAngle : (node.rotation || 0) * Math.PI / 180;
             this.drawLabel(node, nx, ny, angle);
         }
-    }
-
-    parseArrowSpec(arrowEnd) {
-        // Parse arrow specification to determine start/end arrows
-        const hasEnd = arrowEnd.endsWith('Stealth') || arrowEnd.endsWith('latex') || arrowEnd.endsWith('>');
-        const hasStart = arrowEnd.startsWith('Stealth') || arrowEnd.startsWith('latex') || arrowEnd.startsWith('<');
-        return { start: hasStart, end: hasEnd };
     }
 
     getLineDash(style) {
@@ -5329,69 +5274,33 @@ class TikZDrawApp {
         return this.ctx.createPattern(patternCanvas, 'repeat');
     }
 
-    drawVector(vec) {
-        const from = this.getCoordByName(vec.from);
-        const to = this.getCoordByName(vec.to);
-        if (!from || !to) return;
-
+    drawArrowhead(x, y, angle, size, tip) {
         const ctx = this.ctx;
-        const p1 = this.worldToScreen(from.x, from.y);
-        const p2 = this.worldToScreen(to.x, to.y);
-
-        ctx.strokeStyle = this.getColor(vec.color);
-        ctx.fillStyle = this.getColor(vec.color);
-        ctx.lineWidth = this.getThickness(vec.thickness);
-        ctx.setLineDash(this.getLineDash(vec.lineStyle));
-
+        const halfWidth = size * 0.4;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
         ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw arrowheads based on arrowEnd setting
-        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-        const arrowSize = 10 * vec.arrowSize * Math.max(1, this.zoom / 50);
-
-        const hasEndArrow = vec.arrowEnd.includes('Stealth') || vec.arrowEnd.includes('latex') || vec.arrowEnd === '->' || vec.arrowEnd === '<->';
-        const hasStartArrow = vec.arrowEnd.startsWith('Stealth') || vec.arrowEnd.startsWith('latex') || vec.arrowEnd === '<-' || vec.arrowEnd === '<->';
-        const hasBothArrows = vec.arrowEnd.includes('-') && vec.arrowEnd.split('-').filter(s => s).length === 2;
-
-        if (hasBothArrows || (hasEndArrow && !vec.arrowEnd.startsWith('Stealth') && !vec.arrowEnd.startsWith('latex') && !vec.arrowEnd.startsWith('<'))) {
-            this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
+        if (tip === 'To') {
+            ctx.moveTo(-size, -halfWidth);
+            ctx.quadraticCurveTo(-0.65 * size, -0.15 * halfWidth, 0, 0);
+            ctx.quadraticCurveTo(-0.65 * size, 0.15 * halfWidth, -size, halfWidth);
+            ctx.stroke();
+        } else {
+            ctx.moveTo(0, 0);
+            if (tip === 'Latex') {
+                ctx.quadraticCurveTo(-0.55 * size, -halfWidth, -size, -halfWidth);
+                ctx.lineTo(-size, halfWidth);
+                ctx.quadraticCurveTo(-0.55 * size, halfWidth, 0, 0);
+            } else {
+                ctx.lineTo(-size, -halfWidth);
+                ctx.lineTo(-0.65 * size, 0);
+                ctx.lineTo(-size, halfWidth);
+            }
+            ctx.closePath();
+            ctx.fill();
         }
-        if (hasBothArrows || hasStartArrow) {
-            this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize);
-        }
-        if (!hasBothArrows && (vec.arrowEnd === '-Stealth' || vec.arrowEnd === '-latex' || vec.arrowEnd === '->')) {
-            this.drawArrowhead(p2.x, p2.y, angle, arrowSize);
-        }
-
-        // Draw embedded nodes AFTER the line and arrowheads
-        // Calculate line angle for sloped labels (in screen coordinates, Y is inverted)
-        let lineAngle = -Math.atan2(to.y - from.y, to.x - from.x);
-        // Normalize angle to keep text readable (not upside down)
-        if (lineAngle > Math.PI / 2) lineAngle -= Math.PI;
-        if (lineAngle < -Math.PI / 2) lineAngle += Math.PI;
-
-        for (const node of vec.nodes) {
-            const t = node.position;
-            const nx = from.x + t * (to.x - from.x);
-            const ny = from.y + t * (to.y - from.y);
-            const nodeAngle = node.sloped ? lineAngle : (node.rotation || 0) * Math.PI / 180;
-            this.drawLabel(node, nx, ny, nodeAngle);
-        }
-    }
-
-    drawArrowhead(x, y, angle, size) {
-        const ctx = this.ctx;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x - size * Math.cos(angle - 0.4), y - size * Math.sin(angle - 0.4));
-        ctx.lineTo(x - size * 0.6 * Math.cos(angle), y - size * 0.6 * Math.sin(angle));
-        ctx.lineTo(x - size * Math.cos(angle + 0.4), y - size * Math.sin(angle + 0.4));
-        ctx.closePath();
-        ctx.fill();
+        ctx.restore();
     }
     
     drawCircle(circle) {
@@ -5480,7 +5389,7 @@ class TikZDrawApp {
 
         // Convert angles (canvas y is inverted)
         const startRad = -arc.startAngle * Math.PI / 180;
-        const endRad = -arc.endAngle * Math.PI / 180;
+        const endRad = startRad - fillArcSweep(arc.startAngle, arc.endAngle);
 
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, radius, startRad, endRad, true);
@@ -5490,7 +5399,7 @@ class TikZDrawApp {
         // Draw arrowheads if specified
         if (arc.arrowEnd && arc.arrowEnd !== 'none') {
             const arrowSize = 10 * (arc.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = this.parseArrowSpec(arc.arrowEnd);
+            const arrows = arrowTips(arc.arrowEnd);
 
             // Calculate positions and tangent angles at arc endpoints
             const startX = pos.x + radius * Math.cos(startRad);
@@ -5498,15 +5407,12 @@ class TikZDrawApp {
             const endX = pos.x + radius * Math.cos(endRad);
             const endY = pos.y + radius * Math.sin(endRad);
 
-            // Tangent angle is perpendicular to radius (90 degrees offset)
-            // For clockwise arc (true), start tangent points "backward" and end tangent points "forward"
+            // The arc travels toward decreasing angles in canvas coordinates.
             if (arrows.end) {
-                const endTangent = endRad + Math.PI / 2; // Tangent at end, pointing in arc direction
-                this.drawArrowhead(endX, endY, endTangent, arrowSize);
+                this.drawArrowhead(endX, endY, endRad - Math.PI / 2, arrowSize, arrows.end);
             }
             if (arrows.start) {
-                const startTangent = startRad - Math.PI / 2; // Tangent at start, pointing opposite
-                this.drawArrowhead(startX, startY, startTangent, arrowSize);
+                this.drawArrowhead(startX, startY, startRad + Math.PI / 2, arrowSize, arrows.start);
             }
         }
     }
@@ -5801,21 +5707,20 @@ class TikZDrawApp {
         ctx.setLineDash([]);
 
         // Draw arrowheads if specified
-        if (bezier.arrowEnd && bezier.arrowEnd !== 'none') {
+        if (!bezier.closed && bezier.arrowEnd && bezier.arrowEnd !== 'none') {
             const arrowSize = 10 * (bezier.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = this.parseArrowSpec(bezier.arrowEnd);
+            const arrows = arrowTips(bezier.arrowEnd);
 
-            // Calculate tangent angles at endpoints
-            // At start: tangent direction is towards control1
-            const startAngle = Math.atan2(pc1.y - p1.y, pc1.x - p1.x);
-            // At end: tangent direction is from control2 towards end
-            const endAngle = Math.atan2(p2.y - pc2.y, p2.x - pc2.x);
-
-            if (arrows.end) {
-                this.drawArrowhead(p2.x, p2.y, endAngle, arrowSize);
+            // A control point can coincide with its endpoint. The first distinct point gives the tangent.
+            const endControl = [pc2, pc1, p1].find(p => p.x !== p2.x || p.y !== p2.y);
+            if (arrows.end && endControl) {
+                const angle = Math.atan2(p2.y - endControl.y, p2.x - endControl.x);
+                this.drawArrowhead(p2.x, p2.y, angle, arrowSize, arrows.end);
             }
-            if (arrows.start) {
-                this.drawArrowhead(p1.x, p1.y, startAngle + Math.PI, arrowSize);
+            const startControl = [pc1, pc2, p2].find(p => p.x !== p1.x || p.y !== p1.y);
+            if (arrows.start && startControl) {
+                const angle = Math.atan2(p1.y - startControl.y, p1.x - startControl.x);
+                this.drawArrowhead(p1.x, p1.y, angle, arrowSize, arrows.start);
             }
         }
 
@@ -8449,6 +8354,11 @@ class TikZDrawApp {
 
     generateTikZ() {
         let lines = [];
+
+        if (this.objects.some(o => o.arrowEnd && o.arrowEnd !== 'none' &&
+            (/Stealth|Latex/.test(o.arrowEnd) || Number(o.arrowSize ?? 1) !== 1))) {
+            lines.push('\\usetikzlibrary{arrows.meta}');
+        }
 
         // Check if any objects use patterns
         const usesPatterns = this.objects.some(o =>
