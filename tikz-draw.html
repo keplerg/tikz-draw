@@ -742,7 +742,7 @@
             <button id="copyBtn" class="btn" onclick="app.copyObject()" title="Copy (Ctrl+C)" disabled><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg> Copy</button>
             <button id="pasteBtn" class="btn" onclick="app.pasteObject()" title="Paste (Ctrl+V)" disabled><svg class="icon" aria-hidden="true"><use href="#i-paste"/></svg> Paste</button>
             <button class="btn" onclick="app.loadProject()"><svg class="icon" aria-hidden="true"><use href="#i-open"/></svg> Open</button>
-            <button class="btn" onclick="app.saveProject()"><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
+            <button id="saveBtn" class="btn" onclick="app.saveProject()"><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
             <button class="btn btn-primary" onclick="app.showExport()"><svg class="icon" aria-hidden="true"><use href="#i-export"/></svg> Export TikZ</button>
         </div>
     </div>
@@ -2364,7 +2364,9 @@ class TikZDrawApp {
 
         // Unsaved changes tracking
         this.currentFilename = 'tikz-drawing.json';
-        this.hasUnsavedChanges = false;
+        this.projectGeneration = 0;
+        this.isSaving = false;
+        this.savedDrawing = this.drawingCheckpoint();
 
         // Throttling for expensive DOM updates during continuous operations (e.g., dragging)
         this._pendingPropertiesUpdate = false;
@@ -8536,67 +8538,100 @@ class TikZDrawApp {
     // Save/Load
     // ========================================================================
     
-    saveProject() {
-        const data = {
-            version: '1.0',
-            viewX: this.viewX,
-            viewY: this.viewY,
-            zoom: this.zoom,
-            customColors: this.customColors,
-            objects: this.objects.map(o => this.serializeObject(o, true)) // true = include full image data
+    projectDrawing() {
+        return {
+            customColors: { ...this.customColors },
+            objects: this.objects.map(obj => this.serializeObject(obj, true))
         };
+    }
 
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        this.saveFile(blob);
-        this.hasUnsavedChanges = false;
+    drawingCheckpoint(drawing = this.projectDrawing()) {
+        // Compare artwork independently of the viewport and expanded sidebar rows.
+        // Keep the immutable image strings by reference instead of copying them into the key.
+        const images = [];
+        const objects = drawing.objects.map(({ expanded, imageData, ...object }) => {
+            if (object.type === 'TikZImage') images.push(imageData);
+            return object;
+        });
+        return { content: JSON.stringify([drawing.customColors, objects]), images };
+    }
+
+    get hasUnsavedChanges() {
+        const current = this.drawingCheckpoint();
+        const saved = this.savedDrawing;
+        return current.content !== saved.content || current.images.length !== saved.images.length ||
+            current.images.some((image, i) => image !== saved.images[i]);
+    }
+
+    async saveProject() {
+        if (this.isSaving) return;
+        this.isSaving = true;
+        const saveButton = document.getElementById('saveBtn');
+        saveButton.disabled = true;
+        const generation = this.projectGeneration;
+        try {
+            const drawing = this.projectDrawing();
+            const checkpoint = this.drawingCheckpoint(drawing);
+            const data = { version: '1.0', viewX: this.viewX, viewY: this.viewY, zoom: this.zoom, ...drawing };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const result = await this.saveFile(blob);
+            if (!result || generation !== this.projectGeneration) return;
+
+            if (result.written) {
+                this.savedDrawing = checkpoint;
+                this.currentFilename = result.filename;
+                const message = this.hasUnsavedChanges ? 'File saved. Newer changes are still unsaved.' : 'Project saved.';
+                this.showToast(message, 'success');
+            } else {
+                this.showToast('Download requested. This browser cannot confirm when the file is saved.', 'info', 4000);
+            }
+        } catch (err) {
+            this.showToast('Could not save the project: ' + err.message, 'error', 5000);
+        } finally {
+            this.isSaving = false;
+            saveButton.disabled = false;
+        }
     }
 
     async saveFile(blob) {
-      let ignore = (typeof window.showSaveFilePicker !== "undefined");
-      try {
-        // Define picker options (suggested name, file types, etc.)
-        const pickerOptions = {
-          suggestedName: this.currentFilename,
-          types: [{
-            description: 'Tikz-draw file',
-            accept: {
-              'application/json': ['.json'],
-            },
-          }],
-        };
+        if (typeof window.showSaveFilePicker === 'function') {
+            let handle;
+            try {
+                handle = await window.showSaveFilePicker({
+                    suggestedName: this.currentFilename,
+                    types: [{ description: 'TikZ Draw project', accept: { 'application/json': ['.json'] } }]
+                });
+            } catch (err) {
+                if (err.name === 'AbortError') return null;
+                throw err;
+            }
 
-        // Open the file picker and get a file handle
-        const fileHandle = await window.showSaveFilePicker(pickerOptions);
-
-        // Create a writable stream to the file
-        const writableFileStream = await fileHandle.createWritable();
-
-        // Write the content to the file
-        await writableFileStream.write(blob);
-
-        // Close the file
-        await writableFileStream.close();
-      } catch (err) {
-        if (!ignore) {
-          // Prompt for filename
-          let filename = prompt('Enter filename:', this.currentFilename);
-          if (!filename) return; // User cancelled
-
-          // Ensure .json extension
-          filename = filename.trim();
-          if (!filename.endsWith('.json')) {
-              filename += '.json';
-          }
-
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          a.click();
-          URL.revokeObjectURL(url);
+            const stream = await handle.createWritable();
+            try {
+                await stream.write(blob);
+                await stream.close();
+            } catch (err) {
+                // A failed write may already have aborted the stream.
+                try { await stream.abort(); } catch {}
+                throw err;
+            }
+            return { filename: handle.name, written: true };
         }
-      }
+
+        let filename = window.prompt('Enter filename:', this.currentFilename)?.trim();
+        if (!filename) return null;
+        if (!filename.toLowerCase().endsWith('.json')) filename += '.json';
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        try {
+            link.href = url;
+            link.download = filename;
+            link.click();
+        } finally {
+            // Give the browser time to take ownership of the requested download.
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+        }
+        return { filename, written: false };
     }
             
     serializeObject(obj, forFile = false) {
@@ -8797,12 +8832,11 @@ class TikZDrawApp {
         input.addEventListener('change', e => {
             const file = e.target.files[0];
             if (file) {
-                this.currentFilename = file.name;
                 const reader = new FileReader();
                 reader.onload = event => {
                     try {
                         const data = JSON.parse(event.target.result);
-                        this.loadProjectData(data);
+                        this.loadProjectData(data, file.name);
                     } catch (err) {
                         this.showToast('Error loading project: ' + err.message, 'error');
                     }
@@ -8817,7 +8851,7 @@ class TikZDrawApp {
         input.click();
     }
     
-    loadProjectData(data) {
+    loadProjectData(data, filename = this.currentFilename) {
         if (!data || typeof data !== 'object') {
             this.showToast('Invalid project file format', 'error');
             return;
@@ -8866,8 +8900,9 @@ class TikZDrawApp {
         // Update zoom display
         document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 2);
 
-        // Loading a file starts fresh - no unsaved changes
-        this.hasUnsavedChanges = false;
+        this.projectGeneration++;
+        this.currentFilename = filename;
+        this.savedDrawing = this.drawingCheckpoint();
     }
 
     deserializeObject(data) {
@@ -9092,12 +9127,11 @@ class TikZDrawApp {
             needsCleanup = true;
         }
 
-        // Deep copy current state (capture hasUnsavedChanges before we set it to true)
+        // The saved-file checkpoint belongs to the document, outside the undo history.
         const state = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors },
-            hasUnsavedChanges: this.hasUnsavedChanges
+            customColors: { ...this.customColors }
         };
 
         this.undoStack.push(state);
@@ -9114,7 +9148,6 @@ class TikZDrawApp {
         }
 
         this.inNudge = false; // Keeps from saving sequential nudges
-        this.hasUnsavedChanges = true;
 
         this.updateUndoRedoButtons();
     }
@@ -9126,8 +9159,7 @@ class TikZDrawApp {
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors },
-            hasUnsavedChanges: this.hasUnsavedChanges
+            customColors: { ...this.customColors }
         };
         this.redoStack.push(currentState);
 
@@ -9145,8 +9177,7 @@ class TikZDrawApp {
         const currentState = {
             objects: this.objects.map(o => this.serializeObject(o)),
             selectedIds: this.selectedObjects.map(o => o.id),
-            customColors: { ...this.customColors },
-            hasUnsavedChanges: this.hasUnsavedChanges
+            customColors: { ...this.customColors }
         };
         this.undoStack.push(currentState);
 
@@ -9167,11 +9198,6 @@ class TikZDrawApp {
         // Restore selection
         this.selectedObjects = this.objects.filter(o => state.selectedIds && state.selectedIds.includes(o.id));
         this.selectedSubIndex = -1;
-
-        // Restore unsaved changes flag
-        if (state.hasUnsavedChanges !== undefined) {
-            this.hasUnsavedChanges = state.hasUnsavedChanges;
-        }
 
         this.render();
         this.updatePropertiesPanel();
