@@ -138,7 +138,7 @@ Lines and vectors can have labels attached directly to them:
 
 ## Line Styles
 
-Available line styles for all stroke objects:
+Lines, arcs, circles, ellipses, rectangles, paths, and Bézier curves support the following styles on the canvas and in TikZ exports.
 - solid, dashed, dotted
 - dashdotted, dashdotdotted
 - loosely dashed, densely dashed
@@ -165,11 +165,9 @@ TikZ pattern library support for filled objects (Circle, Rectangle, Path):
 
 Patterns use the fill color for pattern color. Export automatically includes `\usetikzlibrary{patterns}` note.
 
-## Arrow Types (Vectors)
+## Arrows on Lines, Arcs, and Bézier Curves
 
-- Stealth, latex (arrow head styles)
-- Start, end, or both ends
-- Adjustable arrow size
+Choose Stealth, latex, or a simple open arrowhead at the start, end, or both ends. The arrow size scales each selected tip. Exports load `arrows.meta` automatically when the arrow needs it.
 
 ## LaTeX Labels
 
@@ -189,6 +187,7 @@ The exported TikZ code is clean and well-organized:
 
 ```latex
 % Note: If using patterns, add to preamble: \usetikzlibrary{patterns}
+\usetikzlibrary{arrows.meta}
 
 \begin{tikzpicture}
 

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Stroke style regression tests</title>
+<h1>Stroke style regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/stroke-styles.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', () => {
+    const doc = frame.contentDocument;
+    const app = frame.contentWindow.app;
+    const results = document.getElementById('results');
+    const report = [];
+    const styles = ['solid', 'dashed', 'dotted', 'dashdotted', 'dashdotdotted',
+        'loosely dashed', 'densely dashed', 'loosely dotted', 'densely dotted',
+        'loosely dashdotted', 'densely dashdotted'];
+    const coords = [['A', 1, 2], ['B', 5, 2], ['C', 2, 3], ['D', 4, 4]].map(([name, x, y]) =>
+        ({ type: 'TikZCoordinate', id: 'coord_' + name, name, x, y, showPoint: false }));
+    const shapes = [
+        { type: 'TikZSegment', from: 'A', to: 'B' },
+        { type: 'TikZVector', from: 'A', to: 'B' },
+        { type: 'TikZCircle', center: 'A', radius: 2 },
+        { type: 'TikZCircle', center: 'A', center2: 'C', radius: 2 },
+        { type: 'TikZArc', center: 'A', radius: 2, startAngle: 10, endAngle: 90 },
+        { type: 'TikZRectangle', xMin: 1, yMin: 1, xMax: 3, yMax: 4 },
+        { type: 'TikZPath', points: ['A', 'B', 'C'] },
+        { type: 'TikZBezier', from: 'A', to: 'B', control1: 'C', control2: 'D' }
+    ];
+
+    function check(ok, message) {
+        if (!ok) throw new Error(message);
+    }
+
+    function test(name, run) {
+        try {
+            run();
+            report.push('PASS  ' + name);
+        } catch (error) {
+            report.push('FAIL  ' + name + '\n' + error.stack);
+        }
+    }
+
+    function open(fixtures) {
+        const objects = fixtures.map((shape, index) => ({ color: 'black', thickness: 'thin',
+            lineStyle: 'solid', fill: 'none', arrowSize: 1, id: 'shape_' + index, ...shape }));
+        app.loadProjectData({ objects: [...coords, ...objects], viewX: 40, viewY: 240, zoom: 40 });
+        return app.objects.filter(obj => obj.type !== 'coord');
+    }
+
+    function canvasDash(shape) {
+        const ctx = app.ctx;
+        const stroke = ctx.stroke;
+        const strokeRect = ctx.strokeRect;
+        const dashes = [];
+        function record(draw) {
+            return function (...args) {
+                dashes.push(this.getLineDash());
+                return draw.apply(this, args);
+            };
+        }
+        ctx.stroke = record(stroke);
+        ctx.strokeRect = record(strokeRect);
+        try {
+            app.drawObject(shape);
+        } finally {
+            ctx.stroke = stroke;
+            ctx.strokeRect = strokeRect;
+        }
+        check(dashes.length > 0, 'No canvas stroke for ' + shape.name);
+        return dashes[0];
+    }
+
+    test('Every offered line style has a distinct canvas stroke on every supported shape', () => {
+        const objects = open(shapes);
+        app.selectedObjects = [objects[0]];
+        app.updatePropertiesPanel();
+        const select = doc.querySelector('#propertiesPanel [data-prop="lineStyle"]');
+        const offered = Array.from(select.options, opt => opt.value);
+        check(styles.every(style => offered.includes(style)), 'The line-style menu lost a documented option');
+        app.selectedObjects = [];
+        const patterns = new Set();
+        for (const style of offered) {
+            const actual = objects.map(shape => {
+                shape.lineStyle = style;
+                return canvasDash(shape).join(',');
+            });
+            check(actual.every(pattern => pattern === actual[0]), 'Inconsistent canvas stroke for ' + style);
+            check((style === 'solid') === (actual[0] === ''), 'Incorrect canvas stroke for ' + style);
+            check(!patterns.has(actual[0]), 'Duplicate dash pattern for ' + style);
+            patterns.add(actual[0]);
+        }
+    });
+
+    test('All documented line styles export on lines, vectors, circles, ellipses, arcs, rectangles, paths and Béziers', () => {
+        const objects = open(shapes);
+        for (const style of styles) {
+            objects.forEach(shape => { shape.lineStyle = style; });
+            const lines = app.generateTikZ().split('\n').filter(line => /^\s*\\draw\b/.test(line));
+            check(lines.length === shapes.length, 'Missing exported strokes for ' + style);
+            if (style !== 'solid') {
+                const token = new RegExp('(?:\\[|,\\s*)' + style + '(?=,|\\])');
+                lines.forEach(line => check(token.test(line), 'Lost ' + style + ' in ' + line));
+            }
+        }
+    });
+
+    function arrowPixels(line, arrowEnd, size) {
+        line.arrowEnd = arrowEnd;
+        line.arrowSize = size;
+        app.ctx.clearRect(0, 0, app.canvas.width, app.canvas.height);
+        app.drawObject(line);
+        return [1, 5].map(x => {
+            const p = app.worldToScreen(x, 2);
+            const pixels = app.ctx.getImageData(p.x - 32, p.y - 16, 64, 32).data;
+            // Exclude the horizontal shaft. Remaining alpha values describe the arrowhead.
+            return Array.from({ length: 64 * 32 }, (_, i) =>
+                Math.abs(Math.floor(i / 64) - 16) > 1 ? pixels[i * 4 + 3] : 0);
+        });
+    }
+
+    test('Canvas draws the selected default, Stealth or latex tip at the requested ends and size', () => {
+        const [line] = open([shapes[0]]);
+        const tips = new Set();
+        for (const [start, end] of [['<', '>'], ['Stealth', 'Stealth'], ['latex', 'latex']]) {
+            for (const [spec, left, right] of [['-' + end, false, true], [start + '-', true, false],
+                [start + '-' + end, true, true]]) {
+                const [a, b] = arrowPixels(line, spec, 1);
+                check(a.some(Boolean) === left && b.some(Boolean) === right, 'Wrong endpoint for ' + spec);
+            }
+            const normal = arrowPixels(line, '-' + end, 1)[1];
+            const large = arrowPixels(line, '-' + end, 1.8)[1];
+            check(large.filter(Boolean).length > normal.filter(Boolean).length, 'Arrow size ignored for ' + end);
+            tips.add(normal.join(','));
+        }
+        check(tips.size === 3, 'Canvas renders different arrow types with the same tip');
+    });
+
+    test('Reloading an older vector preserves its style and exports a usable modern arrow library', () => {
+        open([{ ...shapes[1], lineStyle: 'loosely dashdotted', arrowEnd: 'Stealth-Stealth', arrowSize: 1.75 }]);
+        const project = JSON.parse(JSON.stringify(app.projectDrawing()));
+        app.loadProjectData(project);
+        app.showExport();
+        const code = doc.getElementById('exportCode').value;
+        const preamble = code.split('\\begin{tikzpicture}')[0];
+        const commands = preamble.split('\n').map(line => line.split('%')[0]).join('\n');
+        check(/\\usetikzlibrary\s*\{[^}]*\barrows\.meta\b[^}]*\}/.test(commands), 'Missing active arrows.meta declaration');
+        const draw = code.split('\n').find(line => /^\s*\\draw\b/.test(line)) || '';
+        check(draw.includes('loosely dashdotted') && draw.includes('Stealth') && draw.includes('1.75'),
+            'Reload lost a vector style or arrow setting: ' + draw);
+        // A default tip set with >= only applies to arrows using the < and > shorthands.
+        const explicitTips = draw.match(/Stealth\[[^\]]*\bscale\s*=\s*1\.75\b[^\]]*\]/g) || [];
+        check(explicitTips.length === 2 || (draw.includes('<->') && explicitTips.length === 1),
+            'The configured scale must apply to both tips: ' + draw);
+        app.closeExport();
+    });
+
+    results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>
