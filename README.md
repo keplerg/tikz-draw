@@ -171,7 +171,7 @@ Choose Stealth, latex, or a simple open arrowhead at the start, end, or both end
 
 ## LaTeX Labels
 
-Labels support full LaTeX math notation via MathJax:
+Labels show their source text while MathJax loads. When a formula is ready, the canvas and the label preview update automatically. If MathJax is unavailable, you can keep editing the source text and export it to TikZ.
 
 ```latex
 $\alpha$                           % Greek letters
@@ -365,7 +365,7 @@ Works in modern browsers with ES6+ support:
 - Safari
 - Edge
 
-Requires JavaScript enabled and internet connection (for MathJax CDN).
+Requires JavaScript. Rendering formulas in the browser uses MathJax from a CDN.
 
 ## License
 
