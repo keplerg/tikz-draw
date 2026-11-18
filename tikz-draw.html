@@ -701,6 +701,7 @@
         <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></symbol>
         <symbol id="i-ellipse" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="6.25"/></symbol>
+        <symbol id="i-fill" viewBox="0 0 24 24"><path d="m3 12 8-8 8 8-8 8zM7 2l5 5M4 12h14"/><path d="M21 15s-2 2.5-2 4a2 2 0 0 0 4 0c0-1.5-2-4-2-4Z" fill="currentColor" stroke="none"/></symbol>
         <symbol id="i-expanded" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
         <symbol id="i-export" viewBox="0 0 24 24"><path d="M4.226 20.925A2 2 0 0 0 6 22h12a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.127" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="m5 11-3 3" /><path d="m5 17-3-3h10" /></symbol>
         <symbol id="i-grid" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M9 3v18" /><path d="M15 3v18" /></symbol>
@@ -768,6 +769,10 @@
                 <svg class="icon tool-icon" aria-hidden="true"><use href="#i-line"/></svg>
                 <span>Line</span>
             </div>
+            <button type="button" class="tool" data-tool="fill" title="Fill an enclosed area (F)">
+                <svg class="icon tool-icon" aria-hidden="true"><use href="#i-fill"/></svg>
+                <span>Fill</span>
+            </button>
             <div class="tool-divider"></div>
             <div class="tool" data-tool="circle" title="Circle (C)">
                 <svg class="icon tool-icon" aria-hidden="true"><use href="#i-circle"/></svg>
@@ -1068,7 +1073,7 @@ const TIKZ_PATTERNS = {
 const TYPE_NAMES = {
     'coord': 'Point', 'line': 'Segment', 'vec': 'Vector',
     'circle': 'Circle', 'arc': 'Arc', 'rect': 'Rectangle',
-    'path': 'Path', 'bezier': 'Bezier Curve', 'label': 'Label', 'image': 'Image', 'grid': 'Grid'
+    'path': 'Path', 'region': 'Fill', 'bezier': 'Bezier Curve', 'label': 'Label', 'image': 'Image', 'grid': 'Grid'
 };
         
 // ============================================================================
@@ -1079,6 +1084,16 @@ let objectIdCounter = 0;
 
 function generateId(prefix = 'obj') {
     return `${prefix}_${++objectIdCounter}`;
+}
+
+function tikzNumber(value, minDecimals = 0) {
+    const rounded = Number(value.toFixed(6));
+    if (minDecimals && rounded === Number(rounded.toFixed(minDecimals))) return rounded.toFixed(minDecimals);
+    return String(rounded);
+}
+
+function tikzPoint(point, minDecimals = 0) {
+    return `(${tikzNumber(point.x, minDecimals)}, ${tikzNumber(point.y, minDecimals)})`;
 }
 
 class TikZObject {
@@ -1109,8 +1124,7 @@ class TikZCoordinate extends TikZObject {
     }
     
     toTikZ() {
-        let code = `  \\coordinate (${this.name}) at (${this.x.toFixed(2)}, ${this.y.toFixed(2)});`;
-        return code;
+        return `  \\coordinate (${this.name}) at ${tikzPoint(this, 2)};`;
     }
     
     toTikZPoint() {
@@ -1299,13 +1313,13 @@ class TikZCircle extends TikZObject {
         // Check if this is an ellipse - we need access to app.getCoordByName
         // If center and center2 are the same name, it's definitely a circle
         if (this.center === this.center2) {
-            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+            return `  ${cmd}${optStr} (${this.center}) circle (${tikzNumber(this.radius, 2)});`;
         }
 
         // For ellipse output, we need the actual coordinates
         // This will be handled specially in the export function where we have access to getCoordByName
         // Mark it for ellipse export by including both centers
-        return `  % Ellipse with foci at (${this.center}) and (${this.center2}), a=${this.radius.toFixed(2)}\n  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)}); % TODO: Use ellipse syntax`;
+        return `  % Ellipse with foci at (${this.center}) and (${this.center2}), a=${this.radius.toFixed(2)}\n  ${cmd}${optStr} (${this.center}) circle (${tikzNumber(this.radius, 2)}); % TODO: Use ellipse syntax`;
     }
 
     // Generate TikZ with access to coordinate lookup
@@ -1333,22 +1347,23 @@ class TikZCircle extends TikZObject {
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
 
         if (!this.isEllipse(getCoordByName)) {
-            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+            return `  ${cmd}${optStr} (${this.center}) circle (${tikzNumber(this.radius, 2)});`;
         }
 
         // Generate ellipse TikZ code
         const params = this.getEllipseParams(getCoordByName);
         if (!params) {
-            return `  ${cmd}${optStr} (${this.center}) circle (${this.radius.toFixed(2)});`;
+            return `  ${cmd}${optStr} (${this.center}) circle (${tikzNumber(this.radius, 2)});`;
         }
 
-        const rotationDeg = params.rotation * 180 / Math.PI;
-        if (Math.abs(rotationDeg) > 0.1) {
-            opts.push(`rotate=${rotationDeg.toFixed(1)}`);
+        const center = tikzPoint({ x: params.cx, y: params.cy });
+        const rotationDeg = tikzNumber(params.rotation * 180 / Math.PI);
+        if (rotationDeg !== '0') {
+            opts.push(`rotate around={${rotationDeg}:${center}}`);
             optStr = opts.length ? `[${opts.join(', ')}]` : '';
         }
 
-        return `  ${cmd}${optStr} (${params.cx.toFixed(2)}, ${params.cy.toFixed(2)}) ellipse (${params.a.toFixed(2)} and ${params.b.toFixed(2)});`;
+        return `  ${cmd}${optStr} ${center} ellipse (${tikzNumber(params.a)} and ${tikzNumber(params.b)});`;
     }
 }
 
@@ -1390,7 +1405,8 @@ class TikZArc extends TikZObject {
         const startX = parseFloat(app.getCoordByName(this.center)?.x || 0) + this.radius * Math.cos(this.startAngle * Math.PI / 180);
         const startY = parseFloat(app.getCoordByName(this.center)?.y || 0) + this.radius * Math.sin(this.startAngle * Math.PI / 180);
 
-        return `  \\draw${optStr} (${startX.toFixed(2)}, ${startY.toFixed(2)}) arc (${this.startAngle.toFixed(1)}:${this.endAngle.toFixed(1)}:${this.radius.toFixed(2)});`;
+        const sweep = fillArcSweep(this.startAngle, this.endAngle) * 180 / Math.PI;
+        return `  \\draw${optStr} ${tikzPoint({x: startX, y: startY})} arc[start angle=${tikzNumber(this.startAngle)},delta angle=${tikzNumber(sweep)},radius=${tikzNumber(this.radius)}];`;
     }
 }
 
@@ -1418,9 +1434,8 @@ class TikZRectangle extends TikZObject {
         if (this.lineStyle === 'dashed') opts.push('dashed');
         if (this.lineStyle === 'dotted') opts.push('dotted');
         if (this.rotation !== 0) {
-            const cx = ((this.xMin + this.xMax) / 2).toFixed(2);
-            const cy = ((this.yMin + this.yMax) / 2).toFixed(2);
-            opts.push(`rotate around=\{${this.rotation.toFixed(1)}:(${cx},${cy})\}`);
+            const center = tikzPoint({x: (this.xMin + this.xMax) / 2, y: (this.yMin + this.yMax) / 2}, 2);
+            opts.push(`rotate around={${tikzNumber(this.rotation, 1)}:${center}}`);
         }
 
         let cmd = '\\draw';
@@ -1440,6 +1455,65 @@ class TikZRectangle extends TikZObject {
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  ${cmd}${optStr} (${this.xMin},${this.yMin}) rectangle (${this.xMax},${this.yMax});`;
+    }
+}
+
+function curvedFillTikZPath(pieces) {
+    let path = tikzPoint(fillPrimitivePoint(pieces[0], 0));
+    for (const piece of pieces) {
+        if (piece.kind === 'line') {
+            path += ` -- ${tikzPoint(piece.p1)}`;
+        } else if (piece.kind === 'cubic') {
+            path += ` .. controls ${tikzPoint(piece.p1)} and ${tikzPoint(piece.p2)} .. ${tikzPoint(piece.p3)}`;
+        } else {
+            const degrees = 180 / Math.PI;
+            const arc = `arc[start angle=${tikzNumber(piece.start * degrees)},delta angle=${tikzNumber(piece.sweep * degrees)},x radius=${tikzNumber(piece.rx)},y radius=${tikzNumber(piece.ry)}]`;
+            if (piece.rotation) {
+                // Use local basis vectors so only this arc rotates in a mixed contour.
+                const c = tikzNumber(Math.cos(piece.rotation)), s = tikzNumber(Math.sin(piece.rotation));
+                path += ` {[x={(${c}cm,${s}cm)},y={(${-s}cm,${c}cm)}] ${arc}}`;
+            } else {
+                path += ' ' + arc;
+            }
+        }
+    }
+    return path + ' -- cycle';
+}
+
+class TikZRegion extends TikZObject {
+    constructor(loops = [], fillColor = 'blue', fillOpacity = 0.3, curveLoops = null) {
+        super('region');
+        this.loops = TikZRegion.copyLoops(loops);
+        this.curveLoops = curveLoops ? TikZRegion.copyCurveLoops(curveLoops) : null;
+        this.fillColor = fillColor;
+        this.fillOpacity = Number.isFinite(fillOpacity) ? Math.max(0, Math.min(1, fillOpacity)) : 0.3;
+        this.name = this.id.replace('region_', 'Fill');
+    }
+
+    static copyLoops(loops) {
+        return loops.map(loop => loop.map(vertex =>
+            typeof vertex === 'string' ? vertex : { cross: [...vertex.cross] }
+        ));
+    }
+
+    static copyCurveLoops(loops) {
+        return loops.map(loop => loop.map(({ objectId, part, t0, t1 }) => ({ objectId, part, t0, t1 })));
+    }
+
+    toTikZ(rings) {
+        if (!rings.length || this.fillColor === 'none') return '';
+        const options = [`fill=${this.fillColor}`];
+        if (this.fillOpacity !== 1) options.push(`fill opacity=${this.fillOpacity}`);
+        if (rings.length > 1) options.push('even odd rule');
+        const paths = this.curveLoops ? rings.map(curvedFillTikZPath) : this.loops.map((loop, i) => {
+            const vertices = loop.map((vertex, j) => {
+                if (typeof vertex === 'string') return `(${vertex})`;
+                const { x, y } = rings[i][j];
+                return `(${Number(x.toFixed(6))},${Number(y.toFixed(6))})`;
+            });
+            return vertices.join(' -- ') + ' -- cycle';
+        });
+        return `  \\fill[${options.join(', ')}] ${paths.join(' ')};`;
     }
 }
 
@@ -1546,6 +1620,7 @@ class TikZBezier extends TikZObject {
         this.control1 = control1Coord;
         this.control2 = control2Coord;
         this.to = toCoord;
+        this.closed = false;
         this.color = 'black';
         this.thickness = 'thin';
         this.lineStyle = 'solid';
@@ -1576,11 +1651,7 @@ class TikZBezier extends TikZObject {
         const ctrl1 = app.getCoordByName(this.control1);
         const ctrl2 = app.getCoordByName(this.control2);
         if (ctrl1 && ctrl2) {
-            const c1x = ctrl1.x.toFixed(2);
-            const c1y = ctrl1.y.toFixed(2);
-            const c2x = ctrl2.x.toFixed(2);
-            const c2y = ctrl2.y.toFixed(2);
-            return `  \\draw${optStr} (${this.from}) .. controls (${c1x}, ${c1y}) and (${c2x}, ${c2y}) .. (${this.to});`;
+            return `  \\draw${optStr} (${this.from}) .. controls ${tikzPoint(ctrl1, 2)} and ${tikzPoint(ctrl2, 2)} .. (${this.to})${this.closed ? ' -- cycle' : ''};`;
         }
         return `  \\draw${optStr} (${this.from}) -- (${this.to});`;
     }
@@ -1736,6 +1807,470 @@ class TikZGrid extends TikZObject {
 // Main Application
 // ============================================================================
 
+// Geometry for the Fill tool. Intersections reference their original endpoints
+// so a saved fill follows the drawing when those coordinates move.
+// Boundary primitives stay in world coordinates. A part number identifies the same
+// edge when the drawing is edited, including each side of a rectangle or path.
+function fillArcSweep(startDegrees, endDegrees) {
+    const delta = endDegrees - startDegrees;
+    if (delta >= 360 || (delta < 0 && delta % 360 === 0)) return 2 * Math.PI;
+    return ((delta % 360 + 360) % 360) * Math.PI / 180;
+}
+
+function fillPrimitivesFor(obj, getCoordByName) {
+    const valid = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+    const line = (p0, p1, part) => ({ obj, part, kind: 'line', p0, p1 });
+    function polyline(points, closed) {
+        if (points.length < 2 || !points.every(valid)) return [];
+        const edges = points.slice(1).map((p, i) => line(points[i], p, i));
+        if (closed) edges.push(line(points[points.length - 1], points[0], edges.length));
+        return edges;
+    }
+    function arc(cx, cy, rx, ry, rotation, start, sweep) {
+        if (rx <= 0 || ry <= 0 || !sweep || ![cx, cy, rx, ry, rotation, start, sweep].every(Number.isFinite)) return [];
+        return [{ obj, part: 0, kind: 'arc', cx, cy, rx, ry, rotation, start, sweep }];
+    }
+
+    if (obj instanceof TikZSegment || obj instanceof TikZVector) {
+        return polyline([getCoordByName(obj.from), getCoordByName(obj.to)], false);
+    }
+    if (obj instanceof TikZPath) return polyline(obj.points.map(getCoordByName), obj.closed);
+    if (obj instanceof TikZBezier) {
+        const points = [obj.from, obj.control1, obj.control2, obj.to].map(getCoordByName);
+        if (!points.every(valid)) return [];
+        const [p0, p1, p2, p3] = points;
+        const pieces = [{ obj, part: 0, kind: 'cubic', p0, p1, p2, p3 }];
+        if (obj.closed && (p0.x !== p3.x || p0.y !== p3.y)) pieces.push(line(p3, p0, 1));
+        return pieces;
+    }
+    if (obj instanceof TikZCircle) {
+        if (obj.isEllipse(getCoordByName)) {
+            const e = obj.getEllipseParams(getCoordByName);
+            return arc(e.cx, e.cy, e.a, e.b, e.rotation, 0, 2 * Math.PI);
+        }
+        const center = getCoordByName(obj.center);
+        return valid(center) ? arc(center.x, center.y, obj.radius, obj.radius, 0, 0, 2 * Math.PI) : [];
+    }
+    if (obj instanceof TikZArc) {
+        const center = getCoordByName(obj.center);
+        return valid(center) ? arc(center.x, center.y, obj.radius, obj.radius, 0,
+            obj.startAngle * Math.PI / 180, fillArcSweep(obj.startAngle, obj.endAngle)) : [];
+    }
+    if (obj instanceof TikZRectangle) {
+        const cx = (obj.xMin + obj.xMax) / 2, cy = (obj.yMin + obj.yMax) / 2;
+        const angle = (obj.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const corners = [[obj.xMin, obj.yMin], [obj.xMax, obj.yMin], [obj.xMax, obj.yMax], [obj.xMin, obj.yMax]];
+        return polyline(corners.map(([x, y]) => ({
+            x: cx + (x - cx) * cos - (y - cy) * sin,
+            y: cy + (x - cx) * sin + (y - cy) * cos
+        })), true);
+    }
+    return [];
+}
+
+function fillPrimitivePoint(p, t) {
+    const s = 1 - t;
+    if (p.kind === 'line') return { x: s * p.p0.x + t * p.p1.x, y: s * p.p0.y + t * p.p1.y };
+    if (p.kind === 'cubic') {
+        const a = s * s * s, b = 3 * s * s * t, c = 3 * s * t * t, d = t * t * t;
+        return { x: a * p.p0.x + b * p.p1.x + c * p.p2.x + d * p.p3.x,
+                 y: a * p.p0.y + b * p.p1.y + c * p.p2.y + d * p.p3.y };
+    }
+    const angle = p.start + t * p.sweep, cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+    const x = p.rx * Math.cos(angle), y = p.ry * Math.sin(angle);
+    return { x: p.cx + x * cos - y * sin, y: p.cy + x * sin + y * cos };
+}
+
+function fillPrimitiveDerivative(p, t) {
+    if (p.kind === 'line') return { x: p.p1.x - p.p0.x, y: p.p1.y - p.p0.y };
+    if (p.kind === 'cubic') {
+        const s = 1 - t, a = 3 * s * s, b = 6 * s * t, c = 3 * t * t;
+        return {
+            x: a * (p.p1.x-p.p0.x) + b * (p.p2.x-p.p1.x) + c * (p.p3.x-p.p2.x),
+            y: a * (p.p1.y-p.p0.y) + b * (p.p2.y-p.p1.y) + c * (p.p3.y-p.p2.y)
+        };
+    }
+    const angle = p.start + t * p.sweep, cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+    const x = -p.rx * Math.sin(angle) * p.sweep, y = p.ry * Math.cos(angle) * p.sweep;
+    return { x: x * cos - y * sin, y: x * sin + y * cos };
+}
+
+function fillPrimitiveSpan(p, t0, t1) {
+    const dt = t1 - t0;
+    if (p.kind === 'arc') return { ...p, start: p.start + t0 * p.sweep, sweep: dt * p.sweep };
+    const first = fillPrimitivePoint(p, t0), last = fillPrimitivePoint(p, t1);
+    if (p.kind === 'line') return { ...p, p0: first, p1: last };
+    // On the restricted interval the endpoint derivatives are scaled by dt.
+    const d0 = fillPrimitiveDerivative(p, t0), d1 = fillPrimitiveDerivative(p, t1);
+    return { ...p, p0: first,
+        p1: { x: first.x + dt * d0.x / 3, y: first.y + dt * d0.y / 3 },
+        p2: { x: last.x - dt * d1.x / 3, y: last.y - dt * d1.y / 3 }, p3: last };
+}
+
+function fillPrimitiveSamples(p, tolerance = 0.001) {
+    const at = t => ({ ...fillPrimitivePoint(p, t), t });
+    if (p.kind === 'line') return [at(0), at(1)];
+    if (p.kind === 'arc') {
+        // Sagitta error in the circular parameter space bounds the error of the ellipse.
+        const radius = Math.max(p.rx, p.ry);
+        const step = 4 * Math.asin(Math.sqrt(Math.min(0.001, tolerance / radius) / 2));
+        const count = Math.max(1, Math.min(4096, Math.ceil(Math.abs(p.sweep) / step)));
+        return Array.from({length: count + 1}, (_, i) => at(i / count));
+    }
+    const extent = Math.max(...[p.p1, p.p2, p.p3].map(q => Math.hypot(q.x - p.p0.x, q.y - p.p0.y)));
+    const limit = Math.min(tolerance, extent * 0.001);
+    const result = [at(0)];
+    function sample(a, b, depth) {
+        const {p0, p1, p2, p3} = fillPrimitiveSpan(p, a, b);
+        // Comparing with the control polygon of the chord also detects collinear backtracking.
+        const deviation = (q, f) => Math.hypot(q.x - (p0.x + f * (p3.x - p0.x)),
+                                                q.y - (p0.y + f * (p3.y - p0.y)));
+        if (depth < 12 && (deviation(p1, 1/3) > limit || deviation(p2, 2/3) > limit)) {
+            const mid = (a + b) / 2;
+            sample(a, mid, depth + 1);
+            sample(mid, b, depth + 1);
+        } else {
+            result.push({ ...p3, t: b });
+        }
+    }
+    sample(0, 1, 0);
+    return result;
+}
+
+const FACE_EPSILON = 1e-8;
+
+function facePointOnEdge(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return p.x >= Math.min(a.x, b.x) - FACE_EPSILON && p.x <= Math.max(a.x, b.x) + FACE_EPSILON &&
+        p.y >= Math.min(a.y, b.y) - FACE_EPSILON && p.y <= Math.max(a.y, b.y) + FACE_EPSILON &&
+        Math.abs(dx * (p.y - a.y) - dy * (p.x - a.x)) <= FACE_EPSILON * Math.hypot(dx, dy);
+}
+
+function pointInFaceLoop(points, x, y) {
+    let inside = false;
+    const point = { x, y };
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = points[j], b = points[i];
+        if (facePointOnEdge(point, a, b)) return false;
+        if ((a.y > y) !== (b.y > y) && x < a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+function faceIntersection(a, b, c, d) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const ex = d.x - c.x, ey = d.y - c.y;
+    const det = dx * ey - dy * ex;
+    if (Math.abs(det) <= Number.EPSILON * (Math.abs(dx * ey) + Math.abs(dy * ex))) return null;
+    const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / det;
+    const u = ((c.x - a.x) * dy - (c.y - a.y) * dx) / det;
+    if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+    return { x: a.x + t * dx, y: a.y + t * dy };
+}
+
+function resolveFaceVertex(vertex, getCoordByName) {
+    if (typeof vertex === 'string') return getCoordByName(vertex) || null;
+    if (!Array.isArray(vertex?.cross) || vertex.cross.length !== 4) return null;
+    const coords = vertex.cross.map(name => getCoordByName(name));
+    return coords.every(Boolean) ? faceIntersection(...coords) : null;
+}
+
+function canonicalFaceCross(a, b, c, d) {
+    const first = [a, b].sort(), second = [c, d].sort();
+    return { cross: JSON.stringify(first) <= JSON.stringify(second) ?
+        first.concat(second) : second.concat(first) };
+}
+
+// Editing can reverse a boundary's orientation or change its starting vertex.
+function faceLoopKey(loops) {
+    function ringKey(ring) {
+        const keys = ring.map(v => JSON.stringify(typeof v === 'string' ? v : canonicalFaceCross(...v.cross)));
+        let start = 0;
+        for (let i = 1; i < keys.length; i++) if (keys[i] < keys[start]) start = i;
+        const forward = keys.slice(start).concat(keys.slice(0, start));
+        const backward = [forward[0], ...forward.slice(1).reverse()];
+        return [JSON.stringify(forward), JSON.stringify(backward)].sort()[0];
+    }
+    return JSON.stringify([ringKey(loops[0]), ...loops.slice(1).map(ringKey).sort()]);
+}
+
+function curveLoopKey(loops) {
+    function ringKey(ring) {
+        function orientedKey(reversed) {
+            const keys = (reversed ? [...ring].reverse() : ring).map(span => JSON.stringify([
+                span.objectId, span.part,
+                Math.round((reversed ? span.t1 : span.t0) * 1e6),
+                Math.round((reversed ? span.t0 : span.t1) * 1e6)
+            ]));
+            let start = 0;
+            for (let i = 1; i < keys.length; i++) if (keys[i] < keys[start]) start = i;
+            return keys.slice(start).concat(keys.slice(0, start)).join('|');
+        }
+        return [orientedKey(false), orientedKey(true)].sort()[0];
+    }
+    if (!loops.length) return '';
+    return JSON.stringify([ringKey(loops[0]), ...loops.slice(1).map(ringKey).sort()]);
+}
+
+function chordParameter(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const length2 = dx * dx + dy * dy;
+    return length2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2)) : 0;
+}
+
+// Refine a chord intersection on the original curves, also used to keep saved joins live.
+function refineFillIntersection(a, b, ta, tb) {
+    function parameter(p, value) {
+        if (p.kind === 'arc' && Math.abs(Math.abs(p.sweep) - Math.PI * 2) < 1e-10) {
+            if (value < 0 || value > 1) return value - Math.floor(value);
+        }
+        return Math.max(0, Math.min(1, value));
+    }
+    for (let i = 0; i < 35; i++) {
+        const p = fillPrimitivePoint(a, ta), q = fillPrimitivePoint(b, tb);
+        const dx = q.x - p.x, dy = q.y - p.y;
+        if (Math.hypot(dx, dy) <= 1e-12) {
+            return { ta, tb, point: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 } };
+        }
+        const u = fillPrimitiveDerivative(a, ta), v = fillPrimitiveDerivative(b, tb);
+        const det = u.x * v.y - u.y * v.x;
+        if (Math.abs(det) <= Number.EPSILON * (Math.abs(u.x * v.y) + Math.abs(u.y * v.x))) break;
+        const dt = (dx * v.y - dy * v.x) / det, ds = (dx * u.y - dy * u.x) / det;
+        const damping = Math.max(1, 4 * Math.max(Math.abs(dt), Math.abs(ds)));
+        const nextA = parameter(a, ta + dt / damping), nextB = parameter(b, tb + ds / damping);
+        if (nextA === ta && nextB === tb) break;
+        ta = nextA;
+        tb = nextB;
+    }
+    return null;
+}
+
+// An endpoint may lie on a true arc or Bézier between the sampled chord endpoints.
+function fillPointParameter(chord, point) {
+    const { primitive, a, b, ta, tb, padding } = chord;
+    const u = chordParameter(point, a, b);
+    let t = ta + u * (tb - ta);
+    const distance = Math.hypot(point.x - a.x - u * (b.x - a.x), point.y - a.y - u * (b.y - a.y));
+    if (distance > padding) return null;
+    if (primitive.kind === 'line') return t;
+    for (let i = 0; i < 12; i++) {
+        const p = fillPrimitivePoint(primitive, t);
+        const dx = point.x - p.x, dy = point.y - p.y;
+        if (Math.hypot(dx, dy) <= FACE_EPSILON) return t;
+        const d = fillPrimitiveDerivative(primitive, t), speed2 = d.x * d.x + d.y * d.y;
+        if (!speed2) break;
+        const next = Math.max(ta, Math.min(tb, t + (dx * d.x + dy * d.y) / speed2));
+        if (next === t) break;
+        t = next;
+    }
+    return null;
+}
+
+function findSegmentFace(objects, getCoordByName, x, y) {
+    // Merge coincident endpoints and intersections, including independently named points.
+    const vertices = [], buckets = new Map();
+    function vertexAt(point, ref) {
+        const ix = Math.floor(point.x / FACE_EPSILON), iy = Math.floor(point.y / FACE_EPSILON);
+        for (let i = -1; i <= 1; i++) {
+            for (let j = -1; j <= 1; j++) {
+                const bucket = buckets.get((ix + i) + ',' + (iy + j));
+                const vertex = bucket?.find(v => Math.hypot(v.x - point.x, v.y - point.y) <= FACE_EPSILON);
+                if (vertex) {
+                    // Deterministic choice for coincident names and multi-way intersections.
+                    if (ref != null && (vertex.ref == null || JSON.stringify(ref) < JSON.stringify(vertex.ref))) vertex.ref = ref;
+                    return vertex;
+                }
+            }
+        }
+        const vertex = { x: point.x, y: point.y, ref, edges: new Map(), visited: new Set() };
+        vertices.push(vertex);
+        const key = ix + ',' + iy;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(vertex);
+        return vertex;
+    }
+
+    const segments = [], click = { x, y };
+    const tolerance = 0.001;
+    for (const obj of objects) {
+        for (const primitive of fillPrimitivesFor(obj, getCoordByName)) {
+            const legacy = obj instanceof TikZSegment || obj instanceof TikZVector;
+            const samples = fillPrimitiveSamples(primitive, tolerance);
+            const padding = primitive.kind === 'line' ? FACE_EPSILON : tolerance + FACE_EPSILON;
+            const points = samples.map(p => vertexAt(p, legacy ? (p.t === 0 ? obj.from : obj.to) : null));
+            for (let i = 1; i < points.length; i++) {
+                const a = points[i - 1], b = points[i];
+                if (a === b) continue;
+                const ta = samples[i - 1].t, tb = samples[i].t;
+                const chord = {
+                    obj, primitive, legacy, a, b, ta, tb, padding, cuts: new Map([[a, ta], [b, tb]]),
+                    left: Math.min(a.x, b.x) - padding, right: Math.max(a.x, b.x) + padding,
+                    bottom: Math.min(a.y, b.y) - padding, top: Math.max(a.y, b.y) + padding
+                };
+                if (x >= chord.left && x <= chord.right && y >= chord.bottom && y <= chord.top &&
+                    fillPointParameter(chord, click) !== null) return null;
+                segments.push(chord);
+            }
+        }
+    }
+
+    // Chords determine adjacency; their cuts retain the true source-curve parameters.
+    segments.sort((a, b) => a.left - b.left);
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        for (let j = i + 1; j < segments.length; j++) {
+            const t = segments[j];
+            if (t.left > s.right) break;
+            if (t.top < s.bottom || t.bottom > s.top) continue;
+            if (s.primitive === t.primitive && (s.primitive.kind !== 'cubic' ||
+                s.a === t.b || s.b === t.a)) continue;
+            let touches = false;
+            for (const v of [s.a, s.b]) {
+                const u = fillPointParameter(t, v);
+                if (u !== null) { t.cuts.set(v, u); touches = true; }
+            }
+            for (const v of [t.a, t.b]) {
+                const u = fillPointParameter(s, v);
+                if (u !== null) { s.cuts.set(v, u); touches = true; }
+            }
+            if (touches) continue;
+            const crossing = faceIntersection(s.a, s.b, t.a, t.b);
+            if (!crossing && s.primitive.kind === 'line' && t.primitive.kind === 'line') continue;
+            // Curves touching or cutting close to a chord endpoint can miss at chord precision.
+            const nearer = s.right - s.left + s.top - s.bottom < t.right - t.left + t.top - t.bottom ? s : t;
+            const seed = crossing || { x: (nearer.a.x + nearer.b.x) / 2, y: (nearer.a.y + nearer.b.y) / 2 };
+            const ts = s.ta + chordParameter(seed, s.a, s.b) * (s.tb - s.ta);
+            const tt = t.ta + chordParameter(seed, t.a, t.b) * (t.tb - t.ta);
+            const joint = refineFillIntersection(s.primitive, t.primitive, ts, tt);
+            if (!joint || joint.ta < s.ta - 1e-9 || joint.ta > s.tb + 1e-9 ||
+                joint.tb < t.ta - 1e-9 || joint.tb > t.tb + 1e-9) continue;
+            const ref = s.legacy && t.legacy ? canonicalFaceCross(s.obj.from, s.obj.to, t.obj.from, t.obj.to) : null;
+            const v = vertexAt(joint.point, ref);
+            s.cuts.set(v, joint.ta);
+            t.cuts.set(v, joint.tb);
+        }
+    }
+
+    for (const { obj, primitive, legacy, cuts } of segments) {
+        const ordered = [...cuts.keys()].sort((p, q) => cuts.get(p) - cuts.get(q));
+        for (let i = 1; i < ordered.length; i++) {
+            const p = ordered[i - 1], q = ordered[i];
+            if (!p.edges.has(q)) {
+                const sources = [];
+                p.edges.set(q, sources);
+                q.edges.set(p, sources);
+            }
+            p.edges.get(q).push({ obj, primitive, legacy, start: p, t0: cuts.get(p), t1: cuts.get(q) });
+        }
+    }
+    for (const v of vertices) {
+        const angle = p => Math.atan2(p.y - v.y, p.x - v.x);
+        const neighbors = [...v.edges.keys()].sort((p, q) => angle(p) - angle(q));
+        v.clockwise = new Map(neighbors.map((p, i) => [p, neighbors[(i + neighbors.length - 1) % neighbors.length]]));
+    }
+
+    const faces = [], exteriors = [];
+    for (const start of vertices) {
+        for (const next of start.edges.keys()) {
+            if (start.visited.has(next)) continue;
+            // Following the clockwise neighbor of the reverse edge keeps the face on the left.
+            const stack = [start], indices = new Map([[start, 0]]);
+            const outer = [], holes = [];
+            let a = start, b = next;
+            do {
+                a.visited.add(b);
+                if (indices.has(b)) {
+                    // A bridge may be traversed twice. Split the walk into simple rings.
+                    const index = indices.get(b);
+                    const ring = stack.slice(index);
+                    for (const v of stack.splice(index + 1)) indices.delete(v);
+                    if (ring.length >= 3) {
+                        let twiceArea = 0;
+                        for (let k = 2; k < ring.length; k++) {
+                            const p = ring[k - 1], q = ring[k], o = ring[0];
+                            twiceArea += (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+                        }
+                        if (twiceArea > 0) outer.push({ ring, twiceArea });
+                        if (twiceArea < 0) holes.push(ring);
+                    }
+                } else {
+                    indices.set(b, stack.length);
+                    stack.push(b);
+                }
+                [a, b] = [b, b.clockwise.get(a)];
+            } while (a !== start || b !== next);
+            if (outer.length) {
+                for (const boundary of outer) faces.push({ ...boundary, holes });
+            } else {
+                exteriors.push(...holes);
+            }
+        }
+    }
+
+    function insideRing(ring, p) {
+        const points = [];
+        for (let i = 0; i < ring.length; i++) {
+            const a = ring[i], b = ring[(i + 1) % ring.length];
+            if (p === a) return false;
+            points.push(a);
+            // Subdivide locally when the test point falls between a curve and its chord.
+            if (p.x < Math.min(a.x, b.x) - tolerance || p.x > Math.max(a.x, b.x) + tolerance ||
+                p.y < Math.min(a.y, b.y) - tolerance || p.y > Math.max(a.y, b.y) + tolerance) continue;
+            const edge = a.edges.get(b)[0];
+            if (edge.primitive.kind === 'line') continue;
+            const forward = edge.start === a;
+            const span = fillPrimitiveSpan(edge.primitive, forward ? edge.t0 : edge.t1, forward ? edge.t1 : edge.t0);
+            const samples = fillPrimitiveSamples(span, FACE_EPSILON);
+            for (let j = 1; j < samples.length - 1; j++) points.push(samples[j]);
+        }
+        return pointInFaceLoop(points, p.x, p.y);
+    }
+
+    // A disconnected component inside another face cuts a hole in its immediate container.
+    function containingFace(p) {
+        let best = null;
+        for (const face of faces) {
+            if (best && best.twiceArea <= face.twiceArea) continue;
+            if (insideRing(face.ring, p) && !face.holes.some(ring => insideRing(ring, p))) best = face;
+        }
+        return best;
+    }
+    const face = containingFace({ x, y });
+    if (!face) return null;
+    const rings = [face.ring, ...face.holes];
+    for (const exterior of exteriors) {
+        if (containingFace(exterior[0]) === face) rings.push(exterior);
+    }
+    const sources = new Set();
+    let legacy = rings.every(ring => ring.every(v => v.ref != null));
+    function contiguous(a, b) {
+        return a.objectId === b.objectId && a.part === b.part && Math.abs(a.t1 - b.t0) < 1e-9;
+    }
+    const curveLoops = rings.map(ring => {
+        const runs = [];
+        for (let i = 0; i < ring.length; i++) {
+            const p = ring[i], q = ring[(i + 1) % ring.length];
+            const edges = p.edges.get(q);
+            for (const edge of edges) sources.add(edge.obj);
+            const edge = edges.find(e => e.legacy) || edges[0];
+            if (!edge.legacy) legacy = false;
+            const forward = edge.start === p;
+            const run = { objectId: edge.obj.id, part: edge.primitive.part,
+                t0: forward ? edge.t0 : edge.t1, t1: forward ? edge.t1 : edge.t0 };
+            const previous = runs[runs.length - 1];
+            if (previous && contiguous(previous, run)) previous.t1 = run.t1;
+            else runs.push(run);
+        }
+        if (runs.length > 1 && contiguous(runs[runs.length - 1], runs[0])) runs[0].t0 = runs.pop().t0;
+        return runs;
+    });
+    const loops = legacy ? rings.map(ring => ring.map(v => v.ref)) : [];
+    return { loops, curveLoops: legacy ? null : curveLoops, boundarySegments: [...sources] };
+}
+
 class TikZDrawApp {
     constructor() {
         this.canvas = document.getElementById('canvas');
@@ -1799,7 +2334,7 @@ class TikZDrawApp {
 
         // Move tool state
         this.isMoving = false;
-        this.moveObject = null;
+        this.movingBounds = [];
         this.moveStart = null;
         this.moveCoords = []; // Coordinates being moved
 
@@ -2240,7 +2775,7 @@ class TikZDrawApp {
         return newName;
     }
 
-    addObject(obj) {
+    addObject(obj, beforeObject = null) {
         // Save state for undo
         this.saveState();
 
@@ -2255,6 +2790,8 @@ class TikZDrawApp {
             }
             // Insert after last coordinate, or at beginning if no coordinates
             this.objects.splice(lastCoordIndex + 1, 0, obj);
+        } else if (beforeObject) {
+            this.objects.splice(this.objects.indexOf(beforeObject), 0, obj);
         } else {
             this.objects.push(obj);
         }
@@ -2265,22 +2802,33 @@ class TikZDrawApp {
     }
 
     removeObject(obj) {
-        // Save state for undo
-        this.saveState();
-
         const idx = this.objects.indexOf(obj);
         if (idx >= 0) {
+            this.saveState();
             // Find coordinates used by this object
             const coordsUsedByObject = this.getObjectCoordinates(obj);
 
             // Remove the object
             this.objects.splice(idx, 1);
+            const removedBoundaries = new Set([obj.id]);
+            if (obj instanceof TikZCoordinate) {
+                for (const source of this.objects) {
+                    if (this.getObjectCoordinates(source).includes(obj.name)) removedBoundaries.add(source.id);
+                }
+            }
+            const dependentFills = new Set(this.objects.filter(item => item instanceof TikZRegion && (
+                item.curveLoops?.some(ring => ring.some(run => removedBoundaries.has(run.objectId))) ||
+                (obj instanceof TikZCoordinate && this.getObjectCoordinates(item).includes(obj.name))
+            )));
+            if (dependentFills.size) {
+                this.objects = this.objects.filter(item => !dependentFills.has(item));
+                this.selectedObjects = this.selectedObjects.filter(item => !dependentFills.has(item));
+            }
 
             // Remove from selection if it was selected
             const selIdx = this.selectedObjects.indexOf(obj);
             if (selIdx >= 0) {
                 this.selectedObjects.splice(selIdx, 1);
-                this.updatePropertiesPanel();
             }
 
             // Delete coordinates that are now orphaned (only used by the deleted object)
@@ -2302,6 +2850,7 @@ class TikZDrawApp {
             }
 
             this.updateObjectList();
+            this.updatePropertiesPanel();
             this.updateObjectCount();
             this.updateUndoRedoButtons();
             this.render();
@@ -2386,6 +2935,9 @@ class TikZDrawApp {
                     if (dist < 0.15) return obj;
                 }
             }
+            else if (obj instanceof TikZRegion) {
+                if (this.regionContains(obj, wx, wy)) return obj;
+            }
             else if (obj instanceof TikZCircle) {
                 const isEllipse = obj.isEllipse(this.getCoordByName.bind(this));
                 if (isEllipse) {
@@ -2402,14 +2954,19 @@ class TikZDrawApp {
                         const localY = dx * sin + dy * cos;
                         // Check if inside using ellipse equation: (x/a)² + (y/b)² <= 1
                         const normalized = (localX * localX) / (params.a * params.a) + (localY * localY) / (params.b * params.b);
-                        if (normalized <= 1) return obj;
+                        if (normalized <= 1) {
+                            return (1 - Math.sqrt(normalized)) * Math.min(params.a, params.b) < 0.12 ?
+                                obj : this.paintedInterior(obj, wx, wy);
+                        }
                     }
                 } else {
                     const center = this.getCoordByName(obj.center);
                     if (center) {
                         const dist = Math.hypot(wx - center.x, wy - center.y);
                         // Click anywhere inside the circle (not just on edge)
-                        if (dist <= obj.radius) return obj;
+                        if (dist <= obj.radius) {
+                            return obj.radius - dist < 0.12 ? obj : this.paintedInterior(obj, wx, wy);
+                        }
                     }
                 }
             }
@@ -2433,24 +2990,20 @@ class TikZDrawApp {
                 }
             }
             else if (obj instanceof TikZRectangle) {
-                // Click anywhere inside the rectangle
-                if (wx >= obj.xMin && wx <= obj.xMax && wy >= obj.yMin && wy <= obj.yMax) {
-                    return obj;
+                const cx = (obj.xMin + obj.xMax) / 2, cy = (obj.yMin + obj.yMax) / 2;
+                const local = this.rotatePoint(wx, wy, cx, cy, -(obj.rotation || 0) * Math.PI / 180);
+                const inset = Math.min(Math.abs(obj.xMax - obj.xMin) / 2 - Math.abs(local.x - cx),
+                                       Math.abs(obj.yMax - obj.yMin) / 2 - Math.abs(local.y - cy));
+                if (inset >= -0.05) {
+                    return inset < 0.12 ? obj : this.paintedInterior(obj, wx, wy);
                 }
             }
             else if (obj instanceof TikZBezier) {
-                const from = this.getCoordByName(obj.from);
-                const ctrl1 = this.getCoordByName(obj.control1);
-                const ctrl2 = this.getCoordByName(obj.control2);
-                const to = this.getCoordByName(obj.to);
-                if (from && ctrl1 && ctrl2 && to) {
-                    // Sample points along cubic bezier
-                    for (let t = 0; t <= 1; t += 0.05) {
-                        // Cubic bezier formula: B(t) = (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
-                        const mt = 1 - t;
-                        const px = mt*mt*mt*from.x + 3*mt*mt*t*ctrl1.x + 3*mt*t*t*ctrl2.x + t*t*t*to.x;
-                        const py = mt*mt*mt*from.y + 3*mt*mt*t*ctrl1.y + 3*mt*t*t*ctrl2.y + t*t*t*to.y;
-                        if (Math.hypot(wx - px, wy - py) < 0.15) return obj;
+                for (const piece of fillPrimitivesFor(obj, name => this.getCoordByName(name))) {
+                    const pts = fillPrimitiveSamples(piece, 0.03);
+                    for (let i = 1; i < pts.length; i++) {
+                        const a = pts[i - 1], b = pts[i];
+                        if (this.pointToSegmentDist(wx, wy, a.x, a.y, b.x, b.y) < 0.15) return obj;
                     }
                 }
             }
@@ -2482,7 +3035,7 @@ class TikZDrawApp {
                             && (wx < (xj - xi) * (wy - yi) / (yj - yi) + xi);
                         if (intersect) inside = !inside;
                     }
-                    if (inside) return obj;
+                    if (inside) return this.paintedInterior(obj, wx, wy);
                 }
             }
             else if (obj instanceof TikZLabel) {
@@ -2673,6 +3226,14 @@ class TikZDrawApp {
             coordNames.push(obj.center);
         } else if (obj instanceof TikZPath) {
             coordNames.push(...obj.points);
+        } else if (obj instanceof TikZRegion) {
+            for (const loop of obj.loops) {
+                for (const vertex of loop) {
+                    if (typeof vertex === 'string') coordNames.push(vertex);
+                    else coordNames.push(...vertex.cross);
+                }
+            }
+            return [...new Set(coordNames)];
         } else if (obj instanceof TikZBezier) {
             coordNames.push(obj.from, obj.control1, obj.control2, obj.to);
         } else if (obj instanceof TikZLabel) {
@@ -2711,30 +3272,26 @@ class TikZDrawApp {
         cloned.pointSize = original.pointSize;
         cloned.anchor = original.anchor;
 
+        this.objects.push(cloned);
+        this._coordMap.set(newName, cloned);
         return cloned;
     }
 
     updateObjectCoordinateReference(obj, oldName, newName) {
-        // Update an object's coordinate reference from oldName to newName
-        if (obj instanceof TikZSegment || obj instanceof TikZVector) {
-            if (obj.from === oldName) obj.from = newName;
-            if (obj.to === oldName) obj.to = newName;
-        } else if (obj instanceof TikZCircle) {
-            if (obj.center === oldName) obj.center = newName;
-            if (obj.center2 === oldName) obj.center2 = newName;
-        } else if (obj instanceof TikZArc) {
-            if (obj.center === oldName) obj.center = newName;
-        } else if (obj instanceof TikZPath) {
-            obj.points = obj.points.map(p => p === oldName ? newName : p);
-        } else if (obj instanceof TikZBezier) {
-            if (obj.from === oldName) obj.from = newName;
-            if (obj.control1 === oldName) obj.control1 = newName;
-            if (obj.control2 === oldName) obj.control2 = newName;
-            if (obj.to === oldName) obj.to = newName;
-        } else if (obj instanceof TikZLabel) {
-            if (obj.at === oldName) obj.at = newName;
-        } else if (obj instanceof TikZImage) {
-            if (obj.at === oldName) obj.at = newName;
+        this.mapCoordinateReferences(obj, name => name === oldName ? newName : name);
+    }
+
+    mapCoordinateReferences(obj, rename) {
+        if (obj instanceof TikZPath) {
+            obj.points = obj.points.map(rename);
+        } else if (obj instanceof TikZRegion) {
+            obj.loops = obj.loops.map(loop => loop.map(vertex =>
+                typeof vertex === 'string' ? rename(vertex) : { cross: vertex.cross.map(rename) }
+            ));
+        } else {
+            for (const field of ['from', 'to', 'center', 'center2', 'control1', 'control2', 'at']) {
+                if (typeof obj[field] === 'string') obj[field] = rename(obj[field]);
+            }
         }
     }
 
@@ -2768,8 +3325,6 @@ class TikZDrawApp {
                 // Coordinate is shared or locked - clone it so original stays in place
                 const cloned = this.cloneCoordinate(coordName);
                 if (cloned) {
-                    // Add cloned coordinate to objects
-                    this.objects.push(cloned);
                     // Update object to reference cloned coordinate
                     this.updateObjectCoordinateReference(obj, coordName, cloned.name);
                     coordsToMove.push(cloned);
@@ -2819,7 +3374,6 @@ class TikZDrawApp {
                 // Clone if used outside selection or if locked (so original stays in place)
                 const cloned = this.cloneCoordinate(coordName);
                 if (cloned) {
-                    this.objects.push(cloned);
                     coordMap[coordName] = cloned.name;
                     coordsToMove.push(cloned);
                 }
@@ -2943,17 +3497,7 @@ class TikZDrawApp {
                 this.saveState();
 
                 const obj = this.selectMoveObject;
-                const clickedOnSelected = this.selectedObjects.includes(obj);
-
-                if (clickedOnSelected && this.selectedObjects.length > 1) {
-                    // Moving multiple selected objects
-                    this.moveCoords = this.prepareMultipleObjectsForMove(this.selectedObjects);
-                    this.moveObject = null;
-                } else {
-                    // Moving single object
-                    this.moveCoords = this.prepareObjectForMove(obj);
-                    this.moveObject = obj;
-                }
+                this.prepareMoveSelection(this.selectedObjects.includes(obj) ? this.selectedObjects : [obj]);
 
                 this.isMoving = true;
                 this.moveStart = this.selectMoveStart;
@@ -2985,20 +3529,11 @@ class TikZDrawApp {
             }
 
             // handle Grids and rectangles separately
-            if (!this.moveObject) {
-                for (const obj of this.selectedObjects) {
-                    if (obj instanceof TikZGrid || obj instanceof TikZRectangle) {
-                        obj.xMin = Number((obj.xMin + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
-                        obj.yMin = Number((obj.yMin + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
-                        obj.xMax = Number((obj.xMax + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
-                        obj.yMax = Number((obj.yMax + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
-                    }
-                }
-            } else if (this.moveObject instanceof TikZGrid || this.moveObject instanceof TikZRectangle) {
-                this.moveObject.xMin = Number((this.moveObject.xMin + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
-                this.moveObject.yMin = Number((this.moveObject.yMin + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
-                this.moveObject.xMax = Number((this.moveObject.xMax + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
-                this.moveObject.yMax = Number((this.moveObject.yMax + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
+            for (const obj of this.movingBounds) {
+                obj.xMin = Number((obj.xMin + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                obj.yMin = Number((obj.yMin + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
+                obj.xMax = Number((obj.xMax + dx - (this.lastMoveDelta?.dx || 0)).toFixed(2));
+                obj.yMax = Number((obj.yMax + dy - (this.lastMoveDelta?.dy || 0)).toFixed(2));
             }
 
             this.lastMoveDelta = { dx, dy };
@@ -3154,7 +3689,7 @@ class TikZDrawApp {
 
         if (this.isMoving) {
             this.isMoving = false;
-            this.moveObject = null;
+            this.movingBounds = [];
             this.moveStart = null;
             this.moveCoords = [];
             this.lastMoveDelta = null;
@@ -3381,7 +3916,7 @@ class TikZDrawApp {
         const toolKeys = {
             'v': 'select', 'm': 'move', 'o': 'rotate', 'p': 'point', 'l': 'line',
             'c': 'circle', 'r': 'arc', 'b': 'rect', 't': 'label',
-            'h': 'path', 'q': 'bezier', 'g': 'grid', 'i': 'image'
+            'h': 'path', 'q': 'bezier', 'g': 'grid', 'i': 'image', 'f': 'fill'
         };
         
         if (!isInputActive && toolKeys[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) {
@@ -3427,7 +3962,7 @@ class TikZDrawApp {
 
             // Collect all coordinates to nudge (avoiding duplicates), skipping locked objects
             const coordsToNudge = new Set();
-            const objectsToNudge = this.selectedObjects.filter(obj => !obj.locked);
+            const objectsToNudge = this.withFillBoundaries(this.selectedObjects.filter(obj => !obj.locked)).filter(obj => !obj.locked);
             if (objectsToNudge.length === 0) return;
 
             for (const obj of objectsToNudge) {
@@ -3453,7 +3988,6 @@ class TikZDrawApp {
                                 // Clone the locked coordinate so original stays in place
                                 const cloned = this.cloneCoordinate(coordName);
                                 if (cloned) {
-                                    this.objects.push(cloned);
                                     this.updateObjectCoordinateReference(obj, coordName, cloned.name);
                                     coordsToNudge.add(cloned);
                                 }
@@ -3561,6 +4095,9 @@ class TikZDrawApp {
             case 'vector':
                 this.handleLineClick(snapped);
                 break;
+            case 'fill':
+                this.handleFillClick(world);
+                break;
             case 'circle':
                 this.handleCircleClick(snapped);
                 break;
@@ -3648,6 +4185,12 @@ class TikZDrawApp {
         }
     }
 
+    prepareMoveSelection(selection) {
+        const targets = this.withFillBoundaries(selection).filter(obj => !obj.locked);
+        this.movingBounds = targets.filter(obj => obj instanceof TikZRectangle || obj instanceof TikZGrid);
+        this.moveCoords = targets.length === 1 ? this.prepareObjectForMove(targets[0]) : this.prepareMultipleObjectsForMove(targets);
+    }
+
     handleMoveClick(world) {
         let obj = this.findObjectAt(world.x, world.y);
 
@@ -3659,20 +4202,8 @@ class TikZDrawApp {
             this.saveState();
 
             // Check if clicked object is in current selection
-            const clickedOnSelected = this.selectedObjects.includes(obj);
-
-            if (clickedOnSelected && this.selectedObjects.length > 1) {
-                // Moving multiple selected objects
-                this.moveCoords = this.prepareMultipleObjectsForMove(this.selectedObjects);
-                this.moveObject = null; // Track that we're moving multiple
-                // Keep current selection
-            } else {
-                // Moving single object (either unselected or only selected one)
-                this.moveCoords = this.prepareObjectForMove(obj);
-                this.moveObject = obj;
-                // Update selection to just this object
-                this.selectedObjects = [obj];
-            }
+            if (!this.selectedObjects.includes(obj)) this.selectedObjects = [obj];
+            this.prepareMoveSelection(this.selectedObjects);
 
             this.isMoving = true;
             this.moveStart = { x: world.x, y: world.y };
@@ -3709,6 +4240,7 @@ class TikZDrawApp {
             }
 
             // Arcs rotate around their center point by updating their rotation property as well as their coordinate.
+            objectsToRotate = this.withFillBoundaries(objectsToRotate).filter(obj => !obj.locked);
             const arcs = objectsToRotate.filter(obj => obj instanceof TikZArc);
             const coordBasedObjects = objectsToRotate;
 
@@ -3814,7 +4346,6 @@ class TikZDrawApp {
                     // Clone this coordinate and update all selected objects to use the clone
                     const cloned = this.cloneCoordinate(coordName);
                     if (cloned) {
-                        this.objects.push(cloned);
                         // Update all coordinate-based selected objects to reference the cloned coordinate
                         for (const rotObj of coordBasedObjects) {
                             if (rotObj instanceof TikZCoordinate) continue;
@@ -3901,6 +4432,62 @@ class TikZDrawApp {
             // Hovering over empty space - default cursor
             this.canvas.style.cursor = 'default';
         }
+    }
+
+    regionContains(region, x, y) {
+        return this.getRegionRings(region).reduce((inside, ring) =>
+            pointInFaceLoop(ring, x, y) ? !inside : inside, false);
+    }
+
+    paintedInterior(source, x, y) {
+        return this.objects.findLast(obj => obj instanceof TikZRegion &&
+            obj.curveLoops?.some(ring => ring.some(run => run.objectId === source.id)) &&
+            this.regionContains(obj, x, y)) || source;
+    }
+
+    // Curved fills follow the source objects, including rectangles with numeric bounds.
+    withFillBoundaries(objects) {
+        const ids = new Set();
+        for (const obj of objects) {
+            for (const ring of obj.curveLoops || []) {
+                for (const run of ring) ids.add(run.objectId);
+            }
+        }
+        if (!ids.size) return objects;
+        const selected = new Set(objects);
+        return this.objects.filter(obj => selected.has(obj) || ids.has(obj.id));
+    }
+
+    handleFillClick(world) {
+        const face = findSegmentFace(this.objects, name => this.getCoordByName(name), world.x, world.y);
+        if (!face) {
+            this.showToast('Click inside a closed shape or an area enclosed by lines and curves.');
+            return;
+        }
+
+        const curved = !!face.curveLoops;
+        const key = curved ? curveLoopKey(face.curveLoops) : faceLoopKey(face.loops);
+        let region = this.objects.find(obj => {
+            if (!(obj instanceof TikZRegion) || !!obj.curveLoops !== curved) return false;
+            if (!curved) return faceLoopKey(obj.loops) === key;
+            const resolved = this.getResolvedCurveLoops(obj);
+            return resolved?.length && curveLoopKey(resolved) === key;
+        });
+        if (!region) {
+            region = new TikZRegion(face.loops, undefined, undefined, face.curveLoops);
+            const edges = new Set(face.boundarySegments);
+            const points = new Set(this.getObjectCoordinates(region));
+            const firstBoundary = this.objects.find(obj => edges.has(obj) ||
+                (obj instanceof TikZCoordinate && (obj.showPoint || obj.label) && points.has(obj.name)));
+            const lastPainted = this.objects.findLastIndex(obj => edges.has(obj) && obj.fill && obj.fill !== 'none');
+            this.addObject(region, lastPainted >= 0 ? this.objects[lastPainted + 1] : firstBoundary);
+        }
+        this.selectedObjects = [region];
+        this.switchToSelectMode();
+        this.updatePropertiesPanel();
+        this.updateObjectList();
+        this.updateUndoRedoButtons();
+        this.render();
     }
 
     handlePointClick(snapped) {
@@ -4209,19 +4796,12 @@ class TikZDrawApp {
                 // Calculate control points offset perpendicular to the line
                 const dx = toCoord.x - fromCoord.x;
                 const dy = toCoord.y - fromCoord.y;
-                const len = Math.hypot(dx, dy);
-
-                // Perpendicular offset (on one side of the line)
-                const perpX = -dy / len * 0.4 * len;  // 40% of length as offset
-                const perpY = dx / len * 0.4 * len;
-
-                // Control point 1: 1/3 along the line, offset perpendicular
-                const c1x = fromCoord.x + dx / 3 + perpX;
-                const c1y = fromCoord.y + dy / 3 + perpY;
-
-                // Control point 2: 2/3 along the line, offset perpendicular
-                const c2x = fromCoord.x + 2 * dx / 3 + perpX;
-                const c2y = fromCoord.y + 2 * dy / 3 + perpY;
+                // Coincident endpoints form a loop with two distinct, draggable handles.
+                const loop = dx === 0 && dy === 0;
+                const c1x = fromCoord.x + (loop ? 1.5 : dx / 3 - 0.4 * dy);
+                const c2x = fromCoord.x + (loop ? -1.5 : 2 * dx / 3 - 0.4 * dy);
+                const c1y = fromCoord.y + (loop ? 2 : dy / 3 + 0.4 * dx);
+                const c2y = fromCoord.y + (loop ? 2 : 2 * dy / 3 + 0.4 * dx);
 
                 // Create control point coordinates (hidden by default)
                 const ctrl1 = new TikZCoordinate(c1x, c1y, this.generateCoordName());
@@ -4276,6 +4856,7 @@ class TikZDrawApp {
             'move': 'Click an object to move it independently • Arrow keys to nudge (Shift for fine control)',
             'point': 'Click to place a point',
             'line': 'Click two points to create a line',
+            'fill': 'Click inside a closed shape or an area enclosed by lines and curves',
             'vector': 'Click two points to create a vector',
             'circle': 'Click center, then click to set radius',
             'arc': 'Click center, start point, then end point',
@@ -4446,6 +5027,15 @@ class TikZDrawApp {
         }
         else if (obj instanceof TikZRectangle) {
             this.drawRectangle(obj);
+        }
+        else if (obj instanceof TikZRegion) {
+            if (obj.fillColor === 'none') return;
+            ctx.save();
+            this.traceRegion(obj);
+            ctx.fillStyle = this.getColor(obj.fillColor);
+            ctx.globalAlpha = obj.fillOpacity;
+            ctx.fill('evenodd');
+            ctx.restore();
         }
         else if (obj instanceof TikZPath) {
             this.drawPath(obj);
@@ -4977,6 +5567,122 @@ class TikZDrawApp {
         ctx.restore();
     }
     
+    getResolvedCurveLoops(region) {
+        if (!region.curveLoops) return [];
+        const sources = new Map(this.objects.map(obj => [obj.id, obj]));
+        const primitives = new Map();
+        const rings = [];
+        for (const saved of region.curveLoops) {
+            const spans = [];
+            for (const ref of saved) {
+                const source = sources.get(ref.objectId);
+                if (!source) return [];
+                if (!primitives.has(source)) {
+                    primitives.set(source, fillPrimitivesFor(source, name => this.getCoordByName(name)));
+                }
+                const primitive = primitives.get(source)[ref.part];
+                if (!primitive) return [];
+                spans.push({ ...ref, primitive, forward: ref.t1 > ref.t0 });
+            }
+
+            // A whole ellipse has an arbitrary parameter seam at angle zero. Join runs
+            // split there before updating intersections so an edited junction can cross it.
+            const periodic = span => span.primitive.kind === 'arc' &&
+                Math.abs(span.primitive.sweep) >= Math.PI * 2 - 1e-10;
+            const seam = (a, b) => periodic(a) && a.primitive === b.primitive &&
+                a.forward === b.forward && Math.abs(a.t1 - b.t0) > 1 - 1e-10;
+            if (spans.length > 1 && seam(spans[spans.length - 1], spans[0])) {
+                spans[0].t0 = spans.pop().t0;
+            }
+            const runs = [];
+            for (const span of spans) {
+                const last = runs[runs.length - 1];
+                if (last && seam(last, span)) last.t1 = span.t1;
+                else runs.push(span);
+            }
+
+            for (let i = 0; i < runs.length; i++) {
+                const a = runs[i], b = runs[(i + 1) % runs.length];
+                const p = fillPrimitivePoint(a.primitive, a.t1), q = fillPrimitivePoint(b.primitive, b.t0);
+                if (Math.hypot(q.x - p.x, q.y - p.y) <= 1e-7) continue;
+                const hit = refineFillIntersection(a.primitive, b.primitive, a.t1, b.t0);
+                if (!hit || (a.primitive === b.primitive && Math.abs(hit.ta - hit.tb) < 1e-7)) return [];
+                a.t1 = hit.ta;
+                b.t0 = hit.tb;
+            }
+
+            const ring = [];
+            for (const span of runs) {
+                if (periodic(span) && (span.forward ? span.t1 < span.t0 : span.t1 > span.t0)) {
+                    const end = span.forward ? 1 : 0;
+                    if (span.t0 !== end) ring.push({ ...span, t1: end });
+                    if (span.t1 !== 1 - end) ring.push({ ...span, t0: 1 - end });
+                } else if (span.t0 !== span.t1) {
+                    ring.push(span);
+                }
+            }
+            if (!ring.length) return [];
+            rings.push(ring);
+        }
+        return rings;
+    }
+
+    getRegionCurves(region) {
+        return this.getResolvedCurveLoops(region).map(ring =>
+            ring.map(span => fillPrimitiveSpan(span.primitive, span.t0, span.t1)));
+    }
+
+    getRegionRings(region) {
+        if (region.curveLoops) {
+            return this.getRegionCurves(region).map(ring =>
+                ring.flatMap(piece => fillPrimitiveSamples(piece).slice(0, -1)));
+        }
+        const rings = [];
+        const getCoord = name => this.getCoordByName(name);
+        for (const loop of region.loops) {
+            const ring = loop.map(vertex => resolveFaceVertex(vertex, getCoord));
+            if (ring.length < 3 || ring.some(point => !point)) return [];
+            rings.push(ring);
+        }
+        return rings;
+    }
+
+    traceRegion(region) {
+        this.ctx.beginPath();
+        if (region.curveLoops) {
+            const ctx = this.ctx;
+            const screen = point => this.worldToScreen(point.x, point.y);
+            for (const ring of this.getRegionCurves(region)) {
+                const start = screen(fillPrimitivePoint(ring[0], 0));
+                ctx.moveTo(start.x, start.y);
+                for (const piece of ring) {
+                    if (piece.kind === 'line') {
+                        const end = screen(piece.p1);
+                        ctx.lineTo(end.x, end.y);
+                    } else if (piece.kind === 'cubic') {
+                        const a = screen(piece.p1), b = screen(piece.p2), end = screen(piece.p3);
+                        ctx.bezierCurveTo(a.x, a.y, b.x, b.y, end.x, end.y);
+                    } else {
+                        const center = this.worldToScreen(piece.cx, piece.cy);
+                        ctx.ellipse(center.x, center.y, piece.rx * this.zoom, piece.ry * this.zoom,
+                            -piece.rotation, -piece.start, -(piece.start + piece.sweep), piece.sweep > 0);
+                    }
+                }
+                ctx.closePath();
+            }
+            return;
+        }
+        for (const ring of this.getRegionRings(region)) {
+            const first = this.worldToScreen(ring[0].x, ring[0].y);
+            this.ctx.moveTo(first.x, first.y);
+            for (let i = 1; i < ring.length; i++) {
+                const point = this.worldToScreen(ring[i].x, ring[i].y);
+                this.ctx.lineTo(point.x, point.y);
+            }
+            this.ctx.closePath();
+        }
+    }
+
     drawPath(path) {
         if (path.points.length < 2) return;
 
@@ -5088,6 +5794,7 @@ class TikZDrawApp {
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
         ctx.bezierCurveTo(pc1.x, pc1.y, pc2.x, pc2.y, p2.x, p2.y);
+        if (bezier.closed) ctx.closePath();
         ctx.stroke();
         ctx.setLineDash([]);
 
@@ -5356,6 +6063,10 @@ class TikZDrawApp {
             const pos = this.worldToScreen(obj.x, obj.y);
             ctx.beginPath();
             ctx.arc(pos.x, pos.y, 12, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        else if (obj instanceof TikZRegion) {
+            this.traceRegion(obj);
             ctx.stroke();
         }
         else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
@@ -5659,6 +6370,10 @@ class TikZDrawApp {
 
     isObjectInBox(obj, minX, maxX, minY, maxY) {
         // Check if object is inside the selection box
+        if (obj instanceof TikZRegion) {
+            return this.getRegionRings(obj).some(ring => ring.some(p =>
+                p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY));
+        }
         if (obj instanceof TikZCoordinate) {
             return obj.x >= minX && obj.x <= maxX && obj.y >= minY && obj.y <= maxY;
         }
@@ -5909,6 +6624,18 @@ class TikZDrawApp {
             html += this.renderArcProperties(obj);
         } else if (obj instanceof TikZRectangle) {
             html += this.renderRectProperties(obj);
+        } else if (obj instanceof TikZRegion) {
+            html += `<div class="property-row">
+                <span class="property-label">Fill color:</span>
+                <div class="property-input">${this.renderColorSelect(obj.fillColor, 'fillColor')}</div>
+            </div>
+            <div class="property-row">
+                <label class="property-label" for="opacitySlider">Opacity:</label>
+                <div class="property-input">
+                    <input id="opacitySlider" type="range" min="0" max="1" step="0.01" data-prop="fillOpacity" value="${obj.fillOpacity}">
+                    <span id="opacityValue">${Math.round(obj.fillOpacity * 100)}%</span>
+                </div>
+            </div>`;
         } else if (obj instanceof TikZPath) {
             html += this.renderPathProperties(obj);
         } else if (obj instanceof TikZBezier) {
@@ -6372,6 +7099,10 @@ class TikZDrawApp {
                 <div class="property-input">${this.renderCoordSelect(bezier.to, 'to')}</div>
             </div>
             <div class="property-row">
+                <span class="property-label">Boundary:</span>
+                <label class="property-input"><input type="checkbox" data-prop="closed" ${bezier.closed ? 'checked' : ''}> Close curve with a line</label>
+            </div>
+            <div class="property-row">
                 <span class="property-label">Color:</span>
                 <div class="property-input">${this.renderColorSelect(bezier.color, 'color')}</div>
             </div>
@@ -6694,7 +7425,7 @@ class TikZDrawApp {
         if (!prop) return;
 
         let value = el.type === 'checkbox' ? el.checked : el.value;
-        if (el.type === 'number') value = parseFloat(value);
+        if (el.type === 'number' || el.type === 'range') value = parseFloat(value);
 
         // Save state for undo (but not on every keystroke for textarea)
         // Only save on 'change' events, not 'input' events
@@ -6732,17 +7463,7 @@ class TikZDrawApp {
 
             if (selectedObj instanceof TikZCoordinate) {
                 // Update all references to this coordinate
-                this.objects.forEach(obj => {
-                    if (obj.from === oldName) obj.from = newName;
-                    if (obj.to === oldName) obj.to = newName;
-                    if (obj.center === oldName) obj.center = newName;
-                    if (obj.control1 === oldName) obj.control1 = newName;
-                    if (obj.control2 === oldName) obj.control2 = newName;
-                    if (obj.at === oldName) obj.at = newName;
-                    if (obj.points) {
-                        obj.points = obj.points.map(p => p === oldName ? newName : p);
-                    }
-                });
+                this.objects.forEach(obj => this.updateObjectCoordinateReference(obj, oldName, newName));
             }
         }
         
@@ -7041,20 +7762,8 @@ class TikZDrawApp {
             // Build set of used coordinate names
             const usedCoords = new Set();
             for (const obj of this.objects) {
-                if (obj instanceof TikZSegment || obj instanceof TikZVector) {
-                    usedCoords.add(obj.from);
-                    usedCoords.add(obj.to);
-                } else if (obj instanceof TikZCircle || obj instanceof TikZArc) {
-                    usedCoords.add(obj.center);
-                } else if (obj instanceof TikZPath) {
-                    obj.points.forEach(p => usedCoords.add(p));
-                } else if (obj instanceof TikZBezier) {
-                    usedCoords.add(obj.from);
-                    usedCoords.add(obj.control1);
-                    usedCoords.add(obj.control2);
-                    usedCoords.add(obj.to);
-                } else if (obj instanceof TikZLabel || obj instanceof TikZImage) {
-                    usedCoords.add(obj.at);
+                if (!(obj instanceof TikZCoordinate)) {
+                    this.getObjectCoordinates(obj).forEach(name => usedCoords.add(name));
                 }
             }
             // Also preserve coordinates being used in temporary path/line creation
@@ -7153,6 +7862,7 @@ class TikZDrawApp {
     }
 
     getObjectIcon(obj) {
+        if (obj instanceof TikZRegion) return this.icon('fill');
         if (obj instanceof TikZCoordinate) return this.icon('point');
         if (obj instanceof TikZSegment) return this.icon('line');
         if (obj instanceof TikZVector) return this.icon('vector');
@@ -7182,6 +7892,7 @@ class TikZDrawApp {
     }
     
     getObjectDisplayName(obj) {
+        if (obj instanceof TikZRegion) return `${obj.name} (${obj.fillColor})`;
         if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x.toFixed(2)}, ${obj.y.toFixed(2)})`;
         if (obj instanceof TikZSegment) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
@@ -7671,6 +8382,7 @@ class TikZDrawApp {
         this.closeColorPicker();
         this.updatePropertiesPanel();
         this.updateObjectList();
+        this.render();
     }
     
     // ========================================================================
@@ -7805,6 +8517,9 @@ class TikZDrawApp {
                     // Use toTikZWithCoords for circles to handle ellipses properly
                     if (o instanceof TikZCircle && o.toTikZWithCoords) {
                         lines.push(o.toTikZWithCoords(this.getCoordByName.bind(this)));
+                    } else if (o instanceof TikZRegion) {
+                        const code = o.toTikZ(o.curveLoops ? this.getRegionCurves(o) : this.getRegionRings(o));
+                        if (code) lines.push(code);
                     } else {
                         lines.push(o.toTikZ());
                     }
@@ -7887,7 +8602,13 @@ class TikZDrawApp {
     serializeObject(obj, forFile = false) {
         const data = { type: obj.constructor.name, id: obj.id, locked: obj.locked || false };
 
-        if (obj instanceof TikZCoordinate) {
+        if (obj instanceof TikZRegion) {
+            data.loops = TikZRegion.copyLoops(obj.loops);
+            if (obj.curveLoops) data.curveLoops = TikZRegion.copyCurveLoops(obj.curveLoops);
+            data.fillColor = obj.fillColor;
+            data.fillOpacity = obj.fillOpacity;
+            data.name = obj.name;
+        } else if (obj instanceof TikZCoordinate) {
             data.x = obj.x;
             data.y = obj.y;
             data.name = obj.name;
@@ -8000,6 +8721,7 @@ class TikZDrawApp {
             data.from = obj.from;
             data.control1 = obj.control1;
             data.control2 = obj.control2;
+            data.closed = obj.closed;
             data.to = obj.to;
             data.color = obj.color;
             data.thickness = obj.thickness;
@@ -8153,6 +8875,25 @@ class TikZDrawApp {
         
         try {
             switch (data.type) {
+                case 'TikZRegion': {
+                    const validVertex = vertex => typeof vertex === 'string' ||
+                        (Array.isArray(vertex?.cross) && vertex.cross.length === 4 &&
+                         vertex.cross.every(name => typeof name === 'string'));
+                    if (data.curveLoops != null) {
+                        const validSpan = span => span && typeof span.objectId === 'string' &&
+                            Number.isInteger(span.part) && span.part >= 0 &&
+                            [span.t0, span.t1].every(t => Number.isFinite(t) && t >= 0 && t <= 1);
+                        if (!Array.isArray(data.curveLoops) || !data.curveLoops.length || !data.curveLoops.every(loop =>
+                            Array.isArray(loop) && loop.length && loop.every(validSpan))) return null;
+                        obj = new TikZRegion([], data.fillColor, data.fillOpacity, data.curveLoops);
+                    } else {
+                        if (!Array.isArray(data.loops) || !data.loops.length || !data.loops.every(loop =>
+                            Array.isArray(loop) && loop.length >= 3 && loop.every(validVertex))) return null;
+                        obj = new TikZRegion(data.loops, data.fillColor, data.fillOpacity);
+                    }
+                    obj.name = data.name || obj.name;
+                    break;
+                }
                 case 'TikZCoordinate':
                     obj = new TikZCoordinate(data.x, data.y, data.name);
                     obj.showPoint = data.showPoint;
@@ -8276,6 +9017,7 @@ class TikZDrawApp {
                         console.log('Invalid bezier data');
                         return null;
                     }
+                    obj.closed = data.closed === true;
                     obj.color = data.color;
                     obj.thickness = data.thickness;
                     obj.lineStyle = data.lineStyle;
@@ -8480,10 +9222,19 @@ class TikZDrawApp {
     copyObject() {
         if (this.selectedObjects.length === 0) return;
 
+        const copied = new Set(this.withFillBoundaries(this.selectedObjects));
+        const sourceIds = new Set([...copied].map(obj => obj.id));
+        for (const obj of this.objects) {
+            if (obj.curveLoops?.every(ring => ring.every(run => sourceIds.has(run.objectId)))) copied.add(obj);
+        }
+        const objects = this.objects.filter(obj => copied.has(obj));
+        const coordNames = new Set(objects.flatMap(obj => this.getObjectCoordinates(obj)));
         // Serialize all selected objects with full data (true = include image data)
         // since pasted objects will have new IDs and won't match the cache
         this.clipboard = {
-            objects: this.selectedObjects.map(obj => this.serializeObject(obj, true)),
+            objects: objects.map(obj => this.serializeObject(obj, true)),
+            coordinates: [...coordNames].map(name => this.getCoordByName(name)).filter(Boolean)
+                .map(coord => this.serializeObject(coord)),
             count: this.selectedObjects.length
         };
 
@@ -8508,9 +9259,11 @@ class TikZDrawApp {
 
         // Handle both old format (single object) and new format (multiple objects)
         const clipboardData = this.clipboard.objects ? this.clipboard.objects : [this.clipboard];
+        const savedCoords = new Map((this.clipboard.coordinates || []).map(coord => [coord.name, coord]));
+        const pastedIds = new Map();
 
         // Map to store old coordinate names -> new coordinate names
-        const coordMap = {};
+        const coordMap = new Map();
 
         // Track which clipboard items are TikZCoordinates (by their name)
         const clipboardCoordinateNames = new Set();
@@ -8533,7 +9286,7 @@ class TikZDrawApp {
         // This ensures shared coordinates within the group remain shared
         const newObjects = [];
         for (const oldCoordName of allCoordNames) {
-            const oldCoord = this.getCoordByName(oldCoordName);
+            const oldCoord = savedCoords.get(oldCoordName) || this.getCoordByName(oldCoordName);
             if (oldCoord) {
                 // Create new coordinate with offset
                 const newCoordName = this.generateCoordName();
@@ -8552,7 +9305,7 @@ class TikZDrawApp {
 
                 this.objects.push(newCoord);
                 this._invalidateCoordMap(); // Invalidate cache so generateCoordName sees the new coord
-                coordMap[oldCoordName] = newCoordName;
+                coordMap.set(oldCoordName, newCoordName);
 
                 // If this was a TikZCoordinate in the clipboard, add to newObjects for selection
                 if (clipboardCoordinateNames.has(oldCoordName)) {
@@ -8573,11 +9326,10 @@ class TikZDrawApp {
                 // generate new name and id
                 newObj.name = this.generateUniqueName(newObj.name);
                 newObj.id = generateId(newObj.type);
+                pastedIds.set(objData.id, newObj.id);
 
                 // Update coordinate references in the new object
-                for (const [oldName, newName] of Object.entries(coordMap)) {
-                    this.updateObjectCoordinateReference(newObj, oldName, newName);
-                }
+                this.mapCoordinateReferences(newObj, name => coordMap.get(name) ?? name);
 
                 // For Grids and Rectangles update their corner points
                 if (newObj instanceof TikZGrid || newObj instanceof TikZRectangle) {
@@ -8592,6 +9344,11 @@ class TikZDrawApp {
             }
         }
 
+        for (const obj of newObjects) {
+            for (const ring of obj.curveLoops || []) {
+                for (const run of ring) run.objectId = pastedIds.get(run.objectId) || run.objectId;
+            }
+        }
         // Select all pasted objects
         this.selectedObjects = newObjects;
 
