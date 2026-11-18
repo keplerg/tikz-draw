@@ -14,19 +14,10 @@
             },
             svg: {
                 fontCache: 'global'
-            },
-            startup: {
-                ready: () => {
-                    MathJax.startup.defaultReady();
-                    if (window.app) {
-                        window.app.mathJaxReady = true;
-                        window.app.render();
-                    }
-                }
             }
         };
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+    <script id="mathjax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
     <style>
         * {
             margin: 0;
@@ -2260,7 +2251,8 @@ class TikZDrawApp {
         this.maxHistory = 50;
 
         // LaTeX rendering cache
-        this.latexCache = new Map(); // text -> {svg, width, height}
+        this.mathJaxReady = false;
+        this.latexCache = new Map(); // A null entry uses the text fallback while pending or after failure.
         this.latexRenderQueue = [];
         this.isRenderingLatex = false;
 
@@ -2357,19 +2349,19 @@ class TikZDrawApp {
     }
     
     initMathJax() {
-        // Check if MathJax is already loaded and ready
-        if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
-            MathJax.startup.promise.then(() => {
+        const onLoad = () => {
+            window.MathJax?.startup?.promise?.then(() => {
+                if (typeof MathJax.typesetPromise !== 'function') return;
                 this.mathJaxReady = true;
                 this.render();
-            });
+                this.updateLabelPreview();
+                if (document.getElementById('nodeEditorModal').classList.contains('visible')) this.updateNodePreview();
+            }).catch(err => console.warn('MathJax startup failed:', err));
+        };
+        if (window.MathJax?.startup?.promise) {
+            onLoad();
         } else {
-            // MathJax config will set mathJaxReady when it loads
-            setTimeout(() => {
-                if (!this.mathJaxReady) {
-                    this.initMathJax();
-                }
-            }, 200);
+            document.getElementById('mathjax-script').addEventListener('load', onLoad, { once: true });
         }
     }
     
@@ -2418,16 +2410,7 @@ class TikZDrawApp {
     }
 
     async renderLatexToImage(text, color = 'black', fontSize = 'normal') {
-        const cacheKey = `${text}::${color}::${fontSize}`;
-
-        if (this.latexCache.has(cacheKey)) {
-            return this.latexCache.get(cacheKey);
-        }
-
-        if (!this.mathJaxReady || !window.MathJax) {
-            return null;
-        }
-
+        const container = document.createElement('div');
         try {
             // Parse contour if present
             const contourInfo = this.parseContour(text);
@@ -2441,7 +2424,6 @@ class TikZDrawApp {
             }
 
             // Create a temporary container
-            const container = document.createElement('div');
             container.style.position = 'absolute';
             container.style.left = '-9999px';
             container.style.top = '0px';
@@ -2449,7 +2431,7 @@ class TikZDrawApp {
             container.style.fontSize = this.getFontSizePixels(fontSize);
             container.style.fontFamily = 'serif';
             container.style.background = 'transparent';
-            container.innerHTML = renderText;
+            container.textContent = renderText;
             document.body.appendChild(container);
             
             await MathJax.typesetPromise([container]);
@@ -2548,54 +2530,66 @@ class TikZDrawApp {
                     finalImg.src = offscreen.toDataURL('image/png');
                 });
 
-                const result = {
+                return {
                     img: finalImg,
                     width,
                     height,
                     hasContour: contourInfo.hasContour,
                     contourColor: contourInfo.hasContour ? contourInfo.contourColor : null
                 };
-                this.latexCache.set(cacheKey, result);
-
-                document.body.removeChild(container);
-                return result;
-            } else {
-                document.body.removeChild(container);
-                return null;
             }
+            return null;
         } catch (err) {
             console.error('LaTeX render error:', err);
             return null;
+        } finally {
+            try {
+                MathJax.typesetClear?.([container]);
+            } catch (err) {
+                console.warn('Could not clear MathJax typesetting data:', err);
+            } finally {
+                container.remove();
+            }
         }
     }
     
-    // Queue a LaTeX render and trigger re-render when done
-    queueLatexRender(text, color = 'black', fontSize = 'normal') {
-        const cacheKey = `${text}::${color}::${fontSize}`;
-        if (this.latexCache.has(cacheKey)) return;
-
-        if (!this.latexRenderQueue.some(q => q.key === cacheKey)) {
-            this.latexRenderQueue.push({ text, color, fontSize, key: cacheKey });
+    getLatexImage(text, color = 'black', fontSize = 'normal') {
+        if (!text || !this.mathJaxReady) return null;
+        const key = `${text}::${color}::${fontSize}`;
+        if (!this.latexCache.has(key)) {
+            this.latexCache.set(key, null);
+            this.latexRenderQueue.push({ text, color, fontSize, key });
             this.processLatexQueue();
         }
+        return this.latexCache.get(key);
+    }
+
+    resetLatexCache() {
+        this.latexCache = new Map();
+        this.latexRenderQueue.length = 0;
     }
 
     async processLatexQueue() {
-        if (this.isRenderingLatex || this.latexRenderQueue.length === 0) return;
-
+        if (this.isRenderingLatex) return;
         this.isRenderingLatex = true;
-
-        while (this.latexRenderQueue.length > 0) {
-            const { text, color, fontSize } = this.latexRenderQueue.shift();
-            await this.renderLatexToImage(text, color, fontSize);
-        }
-
-        this.isRenderingLatex = false;
-
-        // Schedule a render on the next animation frame to avoid infinite loops
-        // Only if we're not already in a render call
-        if (!this.isRendering) {
-            requestAnimationFrame(() => this.render());
+        let updated = false;
+        try {
+            while (this.latexRenderQueue.length) {
+                const { text, color, fontSize, key } = this.latexRenderQueue.shift();
+                const cache = this.latexCache;
+                if (!cache.has(key)) continue;
+                const image = await this.renderLatexToImage(text, color, fontSize);
+                if (image && cache === this.latexCache && cache.has(key)) {
+                    cache.set(key, image);
+                    updated = true;
+                }
+            }
+        } finally {
+            this.isRenderingLatex = false;
+            if (updated) {
+                this.render();
+                this.updateLabelPreview();
+            }
         }
     }
     
@@ -5761,8 +5755,7 @@ class TikZDrawApp {
         if (anchor.includes('below')) offsetY = offset;
 
         // Try to get cached LaTeX render
-        const cacheKey = `${text}::${color}::${fontSize}`;
-        const cached = this.latexCache.get(cacheKey);
+        const cached = this.getLatexImage(text, color, fontSize);
 
         // Save context for rotation
         ctx.save();
@@ -5823,9 +5816,6 @@ class TikZDrawApp {
 
             ctx.drawImage(cached.img, drawX, drawY, cached.width * (this.zoom / 50), cached.height * (this.zoom / 50));
         } else {
-            // Queue for rendering and show plain text as fallback
-            this.queueLatexRender(text, color, fontSize);
-
             ctx.fillStyle = color;
             ctx.font = this.getFontSizePixels(fontSize) + ' serif';
             ctx.textAlign = 'center';
@@ -7171,7 +7161,7 @@ class TikZDrawApp {
         }
     }
 
-    async updateLabelPreview() {
+    updateLabelPreview() {
         const previewDiv = document.getElementById('labelPreview');
         if (!previewDiv || this.selectedObjects.length !== 1 || !(this.selectedObjects[0] instanceof TikZLabel)) return;
 
@@ -7180,32 +7170,17 @@ class TikZDrawApp {
         const color = this.getColor(label.color);
         const fontSize = label.fontSize || 'normal';
 
-        // Show loading state
-        previewDiv.innerHTML = 'Rendering...';
         previewDiv.style.color = color;
-
-        // Queue LaTeX render
-        this.queueLatexRender(text, color, fontSize);
-
-        // Wait a bit for MathJax to process, then update preview
-        setTimeout(() => {
-            const cacheKey = `${text}::${color}::${fontSize}`;
-            const cached = this.latexCache.get(cacheKey);
-
-            if (cached && cached.img && cached.img.complete && cached.img.naturalWidth > 0) {
-                // Clear and show image
-                previewDiv.innerHTML = '';
-                const img = document.createElement('img');
-                img.src = cached.img.src;
-                img.style.maxWidth = '100%';
-                img.style.height = 'auto';
-                previewDiv.appendChild(img);
-            } else {
-                // Fallback to text
-                previewDiv.textContent = text;
-                previewDiv.style.fontSize = this.getFontSizePixels(fontSize);
-            }
-        }, 500);
+        previewDiv.style.fontSize = this.getFontSizePixels(fontSize);
+        const cached = this.getLatexImage(text, color, fontSize);
+        if (cached) {
+            const img = cached.img.cloneNode();
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+            previewDiv.replaceChildren(img);
+        } else {
+            previewDiv.textContent = text;
+        }
     }
 
     handlePropertyChange(el) {
@@ -8162,6 +8137,7 @@ class TikZDrawApp {
         this.saveState();
 
         this.customColors[name] = hex;
+        this.resetLatexCache();
 
         // Set the newly created color on the selected object
         if (this.selectedObjects.length === 1 && this.colorPickerProperty) {
@@ -8648,7 +8624,7 @@ class TikZDrawApp {
         // Reset
         this.objects = [];
         this.selectedObjects = [];
-        this.latexCache.clear();
+        this.resetLatexCache();
         // Note: undo/redo stacks are preserved so user can undo the file load
         objectIdCounter = 0;
         
@@ -8656,7 +8632,7 @@ class TikZDrawApp {
         if (data.viewX !== undefined) this.viewX = data.viewX;
         if (data.viewY !== undefined) this.viewY = data.viewY;
         if (data.zoom !== undefined) this.zoom = data.zoom;
-        if (data.customColors) this.customColors = data.customColors;
+        this.customColors = { ...data.customColors };
         
         // Load objects
         for (const objData of data.objects) {
@@ -8951,6 +8927,7 @@ class TikZDrawApp {
         this.objects = state.objects.map(data => this.deserializeObject(data)).filter(o => o !== null);
 
         // Restore custom colors
+        if (JSON.stringify(this.customColors) !== JSON.stringify(state.customColors)) this.resetLatexCache();
         this.customColors = { ...state.customColors };
 
         // Restore selection
