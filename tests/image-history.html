@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Image history regression tests</title>
+<h1>Image history regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/image-history.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', async () => {
+    const results = document.getElementById('results');
+    const doc = frame.contentDocument;
+    const app = frame.contentWindow.app;
+    const undo = doc.getElementById('undoBtn');
+    const redo = doc.getElementById('redoBtn');
+    const report = [];
+
+    function check(condition, message) {
+        if (!condition) throw new Error(message);
+    }
+
+    function imageFixture(filename, rgb) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 2;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgb(' + rgb.join(',') + ')';
+        ctx.fillRect(0, 0, 2, 2);
+        return { filename, rgb, imageData: canvas.toDataURL('image/png') };
+    }
+
+    const red = imageFixture('red.png', [255, 0, 0]);
+    const blue = imageFixture('blue.png', [0, 0, 255]);
+
+    function open(fixture) {
+        const objects = fixture ? [
+            { type: 'TikZCoordinate', id: 'coord_1', name: 'A', x: 2, y: 2, showPoint: false },
+            { type: 'TikZImage', id: 'image_2', name: 'I2', at: 'A', width: 2, height: 2,
+                opacity: 1, filename: fixture.filename, mimeType: 'image/png', imageData: fixture.imageData }
+        ] : [];
+        app.loadProjectData({ version: '1.0', objects, viewX: 90, viewY: 240, zoom: 40, customColors: {} },
+            fixture ? fixture.filename + '.json' : 'empty.json');
+    }
+
+    function checkImage(image, fixture) {
+        check(image?.id === 'image_2', 'Expected the shared image object ID');
+        check(image.imageData === fixture.imageData, 'Wrong embedded pixels for ' + fixture.filename);
+        check(image.filename === fixture.filename && image.mimeType === 'image/png',
+            'Wrong file metadata for ' + fixture.filename);
+    }
+
+    async function checkPreview(fixture) {
+        const image = app.objects.find(obj => obj.type === 'image');
+        checkImage(image, fixture);
+        const point = app.worldToScreen(2.25, 2.25);
+        const deadline = performance.now() + 3000;
+        do {
+            const pixel = app.ctx.getImageData(point.x, point.y, 1, 1).data;
+            if (fixture.rgb.every((channel, i) => pixel[i] === channel) && pixel[3] === 255) return;
+            await new Promise(resolve => setTimeout(resolve, 20));
+        } while (performance.now() < deadline);
+        throw new Error('The editor canvas did not display ' + fixture.filename);
+    }
+
+    async function test(name, run) {
+        try {
+            await run();
+            report.push('PASS  ' + name);
+        } catch (error) {
+            report.push('FAIL  ' + name + '\n' + error.stack);
+        }
+    }
+
+    await test('Undo and redo across an empty drawing', async () => {
+        open(red);
+        await checkPreview(red);
+        open();
+        undo.click();
+        await checkPreview(red);
+        redo.click();
+        check(app.objects.length === 0, 'Redo should reopen the empty drawing');
+        undo.click();
+        await checkPreview(red);
+    });
+
+    await test('Repeated history steps between projects using the same image ID', async () => {
+        open(red);
+        open(blue);
+        await checkPreview(blue);
+        for (let i = 0; i < 2; i++) {
+            undo.click();
+            await checkPreview(red);
+            check(app.hasUnsavedChanges, 'Undo should mark the earlier artwork as modified');
+            redo.click();
+            await checkPreview(blue);
+            check(!app.hasUnsavedChanges, 'Redo should return to the opened drawing');
+        }
+    });
+
+    await test('Save and reopen a copy after branching from a restored image', async () => {
+        open(red);
+        open(blue);
+        undo.click();
+        app.handlePointClick({ x: 4, y: 4 });
+        check(redo.disabled, 'A new edit should discard the other project from redo history');
+        const saveFile = app.saveFile;
+        let copy;
+        try {
+            app.saveFile = async blob => {
+                copy = JSON.parse(await blob.text());
+                return { written: true, filename: 'copy.json' };
+            };
+            await app.saveProject();
+        } finally {
+            app.saveFile = saveFile;
+        }
+        check(copy?.objects.length === 3, 'The saved copy should include the new point');
+        checkImage(copy.objects.find(obj => obj.type === 'TikZImage'), red);
+        open(blue);
+        app.loadProjectData(copy, 'copy.json');
+        await checkPreview(red);
+    });
+
+    results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>

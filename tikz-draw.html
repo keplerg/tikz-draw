@@ -2304,10 +2304,6 @@ class TikZDrawApp {
         this.redoStack = [];
         this.maxHistory = 50;
 
-        // Image data cache - stores base64 data separately to avoid duplication in undo stack
-        // Key: imageId, Value: { imageData, filename, mimeType }
-        this.imageDataCache = new Map();
-
         // LaTeX rendering cache
         this.latexCache = new Map(); // text -> {svg, width, height}
         this.latexRenderQueue = [];
@@ -8427,7 +8423,7 @@ class TikZDrawApp {
     projectDrawing() {
         return {
             customColors: { ...this.customColors },
-            objects: this.objects.map(obj => this.serializeObject(obj, true))
+            objects: this.objects.map(obj => this.serializeObject(obj))
         };
     }
 
@@ -8520,7 +8516,7 @@ class TikZDrawApp {
         return { filename, written: false };
     }
             
-    serializeObject(obj, forFile = false) {
+    serializeObject(obj) {
         const data = { type: obj.constructor.name, id: obj.id, locked: obj.locked || false };
 
         if (obj instanceof TikZRegion) {
@@ -8663,21 +8659,8 @@ class TikZDrawApp {
             data.name = obj.name;
         } else if (obj instanceof TikZImage) {
             data.at = obj.at;
-            if (forFile) {
-                // For file save: include full image data
-                data.imageData = obj.imageData;
-            } else {
-                // For undo/redo: store image data in cache to avoid duplication
-                if (obj.imageData && !this.imageDataCache.has(obj.id)) {
-                    this.imageDataCache.set(obj.id, {
-                        imageData: obj.imageData,
-                        filename: obj.filename,
-                        mimeType: obj.mimeType
-                    });
-                }
-                // Only store reference flag, not actual data
-                data.imageDataCached = true;
-            }
+            // Keep the immutable data URL in each snapshot because IDs are local to a project.
+            data.imageData = obj.imageData;
             data.filename = obj.filename;
             data.mimeType = obj.mimeType;
             data.width = obj.width;
@@ -8756,7 +8739,6 @@ class TikZDrawApp {
         this.objects = [];
         this.selectedObjects = [];
         this.latexCache.clear();
-        this.imageDataCache.clear(); // Clear image cache to free memory
         // Note: undo/redo stacks are preserved so user can undo the file load
         objectIdCounter = 0;
         
@@ -8957,17 +8939,7 @@ class TikZDrawApp {
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZImage':
-                    // Restore image data from cache if available (undo/redo case)
-                    let imageData = data.imageData;
-                    let filename = data.filename;
-                    let mimeType = data.mimeType;
-                    if (data.imageDataCached && data.id && this.imageDataCache.has(data.id)) {
-                        const cached = this.imageDataCache.get(data.id);
-                        imageData = cached.imageData;
-                        filename = cached.filename || filename;
-                        mimeType = cached.mimeType || mimeType;
-                    }
-                    obj = new TikZImage(data.at, imageData, filename, mimeType);
+                    obj = new TikZImage(data.at, data.imageData, data.filename, data.mimeType);
                     obj.width = data.width;
                     obj.height = data.height;
                     obj.opacity = data.opacity;
@@ -9005,10 +8977,8 @@ class TikZDrawApp {
     // Undo/Redo functionality
     saveState() {
         // Limit history size
-        let needsCleanup = false;
         if (this.undoStack.length >= this.maxHistory) {
             this.undoStack.shift();
-            needsCleanup = true;
         }
 
         // The saved-file checkpoint belongs to the document, outside the undo history.
@@ -9021,15 +8991,7 @@ class TikZDrawApp {
         this.undoStack.push(state);
 
         // Clear redo stack when new action taken
-        if (this.redoStack.length > 0) {
-            this.redoStack = [];
-            needsCleanup = true;
-        }
-
-        // Clean up image cache if we discarded states
-        if (needsCleanup) {
-            this.cleanupImageCache();
-        }
+        this.redoStack.length = 0;
 
         this.inNudge = false; // Keeps from saving sequential nudges
 
@@ -9091,46 +9053,6 @@ class TikZDrawApp {
         this.updateUndoRedoButtons();
     }
 
-    // Clean up image cache by removing entries for images no longer in any state
-    cleanupImageCache() {
-        if (this.imageDataCache.size === 0) return;
-
-        // Collect all image IDs that are still referenced
-        const referencedIds = new Set();
-
-        // From current objects
-        for (const obj of this.objects) {
-            if (obj instanceof TikZImage) {
-                referencedIds.add(obj.id);
-            }
-        }
-
-        // From undo stack
-        for (const state of this.undoStack) {
-            for (const data of state.objects) {
-                if (data.type === 'TikZImage' && data.id) {
-                    referencedIds.add(data.id);
-                }
-            }
-        }
-
-        // From redo stack
-        for (const state of this.redoStack) {
-            for (const data of state.objects) {
-                if (data.type === 'TikZImage' && data.id) {
-                    referencedIds.add(data.id);
-                }
-            }
-        }
-
-        // Remove unreferenced entries from cache
-        for (const id of this.imageDataCache.keys()) {
-            if (!referencedIds.has(id)) {
-                this.imageDataCache.delete(id);
-            }
-        }
-    }
-
     copyObject() {
         if (this.selectedObjects.length === 0) return;
 
@@ -9141,10 +9063,8 @@ class TikZDrawApp {
         }
         const objects = this.objects.filter(obj => copied.has(obj));
         const coordNames = new Set(objects.flatMap(obj => this.getObjectCoordinates(obj)));
-        // Serialize all selected objects with full data (true = include image data)
-        // since pasted objects will have new IDs and won't match the cache
         this.clipboard = {
-            objects: objects.map(obj => this.serializeObject(obj, true)),
+            objects: objects.map(obj => this.serializeObject(obj)),
             coordinates: [...coordNames].map(name => this.getCoordByName(name)).filter(Boolean)
                 .map(coord => this.serializeObject(coord)),
             count: this.selectedObjects.length
