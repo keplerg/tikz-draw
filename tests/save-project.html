@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Project save regression tests</title>
+<h1>Project save regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/save-project.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', async () => {
+    const results = document.getElementById('results');
+    const win = frame.contentWindow;
+    const doc = win.document;
+    const app = win.app;
+    const picker = Object.getOwnPropertyDescriptor(win, 'showSaveFilePicker');
+    const originalPrompt = win.prompt;
+    const originalClick = win.HTMLAnchorElement.prototype.click;
+    const report = [];
+
+    function check(condition, message) {
+        if (!condition) throw new Error(message);
+    }
+
+    function checkDirty(expected, message) {
+        const event = new win.Event('beforeunload', { cancelable: true });
+        win.dispatchEvent(event);
+        check(app.hasUnsavedChanges === expected && event.defaultPrevented === expected, message);
+    }
+
+    function reset() {
+        app.loadProjectData({ version: '1.0', objects: [], customColors: {} });
+        doc.querySelector('.toast')?.remove();
+    }
+
+    function deferred() {
+        let resolve;
+        const promise = new Promise(done => { resolve = done; });
+        return { promise, resolve };
+    }
+
+    function startPendingSave(filename = 'drawing.json') {
+        const writing = deferred();
+        const finish = deferred();
+        let pickCount = 0;
+        win.showSaveFilePicker = async () => {
+            pickCount++;
+            return {
+                name: filename,
+                createWritable: async () => ({
+                    write: async blob => writing.resolve(blob),
+                    close: () => finish.promise
+                })
+            };
+        };
+        const saving = app.saveProject();
+        return { writing: writing.promise, finish: finish.resolve, saving, pickCount: () => pickCount };
+    }
+
+    try {
+        reset();
+        app.handlePointClick({ x: 1, y: 1 });
+        checkDirty(true, 'Adding a point should enable the leave warning');
+        win.showSaveFilePicker = async () => { throw new win.DOMException('Cancelled', 'AbortError'); };
+        await app.saveProject();
+        checkDirty(true, 'Cancelling the native picker cleared the leave warning');
+        check(!doc.querySelector('.toast.error'), 'Cancelling was reported as a write error');
+        report.push('PASS  Native cancellation retains the leave warning');
+
+        for (const failure of ['createWritable', 'write', 'close']) {
+            doc.querySelector('.toast')?.remove();
+            const failAt = stage => {
+                if (stage === failure) throw new win.DOMException('Write failed', 'NotAllowedError');
+            };
+            win.showSaveFilePicker = async () => ({
+                name: 'failed.json',
+                createWritable: async () => {
+                    failAt('createWritable');
+                    return {
+                        write: async () => failAt('write'),
+                        close: async () => failAt('close'),
+                        abort: async () => {}
+                    };
+                }
+            });
+            await app.saveProject();
+            checkDirty(true, failure + ' failure cleared the leave warning');
+            check(doc.querySelector('.toast.error')?.textContent, failure + ' failure was silent');
+        }
+        report.push('PASS  Create, write and close errors retain changes and show feedback');
+
+        const pending = startPendingSave();
+        const blob = await pending.writing;
+        doc.querySelector('button[onclick="app.saveProject()"]').click();
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+        check(pending.pickCount() === 1, 'Repeated Save started more than one picker');
+        checkDirty(true, 'A pending write cleared the warning before close');
+        app.handlePointClick({ x: 2, y: 2 });
+        pending.finish();
+        await pending.saving;
+        check(JSON.parse(await blob.text()).objects.length === 1, 'The saved snapshot included a later edit');
+        checkDirty(true, 'An edit made during the write was marked saved');
+        app.undo();
+        checkDirty(false, 'Undoing to the saved snapshot should clear the warning');
+        app.redo();
+        checkDirty(true, 'Redoing the later edit should restore the warning');
+        report.push('PASS  Pending save, repeated button and keyboard saves, later edits and undo/redo');
+
+        const success = startPendingSave();
+        await success.writing;
+        checkDirty(true, 'Starting the retry incorrectly cleared the warning');
+        success.finish();
+        await success.saving;
+        checkDirty(false, 'Successful close should mark the current drawing saved');
+        app.undo();
+        checkDirty(true, 'Undoing away from the latest saved drawing must mark it modified');
+        app.redo();
+        checkDirty(false, 'Redoing to the latest saved drawing should restore its saved state');
+        report.push('PASS  Completed save establishes the current saved drawing');
+
+        app.handlePointClick({ x: 3, y: 3 });
+        const earlierProject = startPendingSave('previous-project.json');
+        await earlierProject.writing;
+        reset();
+        const currentFilename = app.currentFilename;
+        app.handlePointClick({ x: 4, y: 4 });
+        earlierProject.finish();
+        await earlierProject.saving;
+        checkDirty(true, 'A previous project save cleared changes in the newly opened project');
+        check(app.currentFilename === currentFilename, 'A previous project save replaced the new project filename');
+        report.push('PASS  Completing an earlier project save preserves the new project');
+
+        delete win.showSaveFilePicker;
+        let download;
+        win.HTMLAnchorElement.prototype.click = function () {
+            download = { name: this.download, data: win.fetch(this.href).then(response => response.json()) };
+        };
+        for (const response of [null, '   ']) {
+            win.prompt = () => response;
+            await app.saveProject();
+            check(!download, 'A cancelled or blank filename initiated a download');
+            checkDirty(true, 'Cancelling the download prompt cleared the warning');
+        }
+        win.prompt = () => 'fallback';
+        await app.saveProject();
+        check(download?.name === 'fallback.json', 'Download filename lost its JSON extension');
+        check((await download.data).objects.length === 1, 'Download did not contain the current project');
+        checkDirty(true, 'An unconfirmed download cleared the leave warning');
+        check(doc.querySelector('.toast.info')?.textContent, 'An initiated download did not show feedback');
+        report.push('PASS  Download fallback hands off JSON and retains the warning until a write is confirmed');
+
+        reset();
+        app.handlePointClick({ x: 0, y: 0 });
+        const nudge = () => doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        nudge();
+        const duringNudge = startPendingSave();
+        await duringNudge.writing;
+        const historyLength = app.undoStack.length;
+        nudge();
+        check(app.undoStack.length === historyLength, 'Expected consecutive nudges to share one history entry');
+        duringNudge.finish();
+        await duringNudge.saving;
+        checkDirty(true, 'A later nudge in the same history entry was marked saved');
+        const latest = startPendingSave();
+        await latest.writing;
+        latest.finish();
+        await latest.saving;
+        app.viewX += 10;
+        app.toggleExpand(app.objects[0].id);
+        checkDirty(false, 'Panning or expanding a list row marked saved artwork as changed');
+        report.push('PASS  Consecutive nudges during save and view-only changes');
+        results.dataset.status = 'passed';
+    } catch (error) {
+        report.push('FAIL  ' + error.stack);
+        results.dataset.status = 'failed';
+    } finally {
+        if (picker) Object.defineProperty(win, 'showSaveFilePicker', picker);
+        else delete win.showSaveFilePicker;
+        win.prompt = originalPrompt;
+        win.HTMLAnchorElement.prototype.click = originalClick;
+        results.textContent = report.join('\n');
+    }
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>
