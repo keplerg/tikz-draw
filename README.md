@@ -126,7 +126,7 @@ Embed images (PNG, JPG, GIF) into your TikZ diagrams:
 3. Select an image file from your computer
 4. Adjust properties: position, scale, rotation, opacity
 
-Images are embedded as base64 data in the exported TikZ code using the `\includegraphics` command. Images maintain their aspect ratio and can be rotated and scaled independently.
+Project files embed the image data. If you open another project, Undo restores the previous drawing with its images, and Redo brings back the project you opened. Exported TikZ references each image by filename with `\includegraphics`. Keep the image files alongside the exported `.tex` file when compiling. Images maintain their aspect ratio and can be rotated and scaled independently.
 
 ## Embedded Labels
 
