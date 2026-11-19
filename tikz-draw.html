@@ -1127,6 +1127,38 @@ function arrowTips(spec) {
     return { start: names[start] || '', end: names[end] || '' };
 }
 
+const ARROW_TYPE_LABELS = { none: 'None', Stealth: 'Stealth', latex: 'Latex', simple: 'Simple' };
+
+function arrowSettings(obj) {
+    const spec = obj.arrowEnd && obj.arrowEnd !== 'none' ? obj.arrowEnd : '-';
+    const [start, end = ''] = spec.split('-');
+    const typeOf = tip => tip === '<' || tip === '>' ? 'simple' : tip === 'Latex' ? 'latex' : tip;
+    const startType = typeOf(start);
+    const endType = typeOf(end);
+    const type = startType && endType && startType !== endType ? 'custom' : startType || endType || 'none';
+    const placement = start ? (end ? 'both' : 'start') : (end ? 'end' : obj.arrowPlacement || 'end');
+    return { start, end, placement, type: Object.hasOwn(ARROW_TYPE_LABELS, type) ? type : 'custom' };
+}
+
+function setArrowControl(obj, prop, value) {
+    let { start, end, placement } = arrowSettings(obj);
+    if (prop === 'arrowType') {
+        start = value === 'simple' ? '<' : value;
+        end = value === 'simple' ? '>' : value;
+        if (value === 'none') start = end = '';
+    } else {
+        placement = value;
+        if (!start) start = end === '>' ? '<' : end;
+        if (!end) end = start === '<' ? '>' : start;
+    }
+    const startTip = placement === 'end' ? '' : start;
+    const endTip = placement === 'start' ? '' : end;
+    obj.arrowEnd = startTip || endTip ? `${startTip}-${endTip}` : 'none';
+    // Active arrows already encode their placement in the project's TikZ specification.
+    if (obj.arrowEnd === 'none' && placement !== 'end') obj.arrowPlacement = placement;
+    else delete obj.arrowPlacement;
+}
+
 function strokeOptions({ arrowEnd, arrowSize = 1, color, thickness, lineStyle }) {
     const options = [];
     if (arrowEnd && arrowEnd !== 'none') {
@@ -6429,10 +6461,8 @@ class TikZDrawApp {
         // Type-specific properties
         if (obj instanceof TikZCoordinate) {
             html += this.renderCoordProperties(obj);
-        } else if (obj instanceof TikZSegment) {
+        } else if (obj instanceof TikZSegment || obj instanceof TikZVector) {
             html += this.renderSegmentProperties(obj);
-        } else if (obj instanceof TikZVector) {
-            html += this.renderVectorProperties(obj);
         } else if (obj instanceof TikZCircle) {
             html += this.renderCircleProperties(obj);
         } else if (obj instanceof TikZArc) {
@@ -6618,14 +6648,7 @@ class TikZDrawApp {
                 <span class="property-label">Style:</span>
                 <div class="property-input">${this.renderLineStyleSelect(seg.lineStyle, 'lineStyle')}</div>
             </div>
-            <div class="property-row">
-                <span class="property-label">Arrow:</span>
-                <div class="property-input">${this.renderArrowSelect(seg.arrowEnd || 'none', 'arrowEnd')}</div>
-            </div>
-            <div class="property-row" ${(seg.arrowEnd && seg.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
-                <span class="property-label">Arrow Size:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${seg.arrowSize || 1.0}"></div>
-            </div>
+            ${this.renderArrowProperties(seg)}
             <div class="property-row">
                 <span class="property-label">Labels:</span>
                 <div class="property-input">
@@ -6635,74 +6658,34 @@ class TikZDrawApp {
         `;
     }
 
-    renderArrowSelect(value, prop) {
-        return `
-            <select data-prop="${prop}">
-                <option value="none" ${value === 'none' ? 'selected' : ''}>None</option>
-                <option value="-Stealth" ${value === '-Stealth' ? 'selected' : ''}>→ End</option>
-                <option value="Stealth-" ${value === 'Stealth-' ? 'selected' : ''}>← Start</option>
-                <option value="Stealth-Stealth" ${value === 'Stealth-Stealth' ? 'selected' : ''}>↔ Both</option>
-                <option value="->" ${value === '->' ? 'selected' : ''}>-> End (simple)</option>
-                <option value="<-" ${value === '<-' ? 'selected' : ''}>← Start (simple)</option>
-                <option value="<->" ${value === '<->' ? 'selected' : ''}>↔ Both (simple)</option>
-                <option value="-latex" ${value === '-latex' ? 'selected' : ''}>-latex End</option>
-                <option value="latex-" ${value === 'latex-' ? 'selected' : ''}>latex- Start</option>
-                <option value="latex-latex" ${value === 'latex-latex' ? 'selected' : ''}>latex-latex Both</option>
-            </select>
-        `;
-    }
-    
-    renderVectorProperties(vec) {
+    renderArrowProperties(obj) {
+        const { type, placement } = arrowSettings(obj);
+        const options = Object.entries(ARROW_TYPE_LABELS).map(([value, label]) =>
+            `<option value="${value}" ${value === type ? 'selected' : ''}>${label}</option>`
+        ).join('');
         return `
             <div class="property-row">
-                <span class="property-label">Name:</span>
-                <div class="property-input"><input type="text" data-prop="name" value="${vec.name}"></div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">From:</span>
-                <div class="property-input">${this.renderCoordSelect(vec.from, 'from', [vec.to])}</div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">To:</span>
-                <div class="property-input">${this.renderCoordSelect(vec.to, 'to', [vec.from])}</div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">Color:</span>
-                <div class="property-input">${this.renderColorSelect(vec.color, 'color')}</div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">Thickness:</span>
-                <div class="property-input">${this.renderThicknessSelect(vec.thickness, 'thickness')}</div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">Style:</span>
-                <div class="property-input">${this.renderLineStyleSelect(vec.lineStyle, 'lineStyle')}</div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">Arrow:</span>
+                <label class="property-label" for="arrowType">Arrow Type:</label>
                 <div class="property-input">
-                    <select data-prop="arrowEnd">
-                        <option value="-Stealth" ${vec.arrowEnd === '-Stealth' ? 'selected' : ''}>-Stealth (end)</option>
-                        <option value="Stealth-" ${vec.arrowEnd === 'Stealth-' ? 'selected' : ''}>Stealth- (start)</option>
-                        <option value="Stealth-Stealth" ${vec.arrowEnd === 'Stealth-Stealth' ? 'selected' : ''}>Stealth-Stealth (both)</option>
-                        <option value="->" ${vec.arrowEnd === '->' ? 'selected' : ''}>-> (end)</option>
-                        <option value="<-" ${vec.arrowEnd === '<-' ? 'selected' : ''}>← (start)</option>
-                        <option value="<->" ${vec.arrowEnd === '<->' ? 'selected' : ''}>↔ (both)</option>
-                        <option value="-latex" ${vec.arrowEnd === '-latex' ? 'selected' : ''}>-latex</option>
-                        <option value="latex-" ${vec.arrowEnd === 'latex-' ? 'selected' : ''}>latex-</option>
-                        <option value="latex-latex" ${vec.arrowEnd === 'latex-latex' ? 'selected' : ''}>latex-latex</option>
+                    <select id="arrowType" data-prop="arrowType">
+                        ${type === 'custom' ? '<option value="custom" selected disabled>Custom</option>' : ''}
+                        ${options}
                     </select>
                 </div>
             </div>
             <div class="property-row">
-                <span class="property-label">Arrow Size:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${vec.arrowSize}"></div>
-            </div>
-            <div class="property-row">
-                <span class="property-label">Labels:</span>
+                <label class="property-label" for="arrowPlacement">Arrow Position:</label>
                 <div class="property-input">
-                    <button class="btn" onclick="app.addEmbeddedNode()" style="width:100%;">+ Add Label</button>
+                    <select id="arrowPlacement" data-prop="arrowPlacement">
+                        <option value="end" ${placement === 'end' ? 'selected' : ''}>End</option>
+                        <option value="start" ${placement === 'start' ? 'selected' : ''}>Start</option>
+                        <option value="both" ${placement === 'both' ? 'selected' : ''}>Both</option>
+                    </select>
                 </div>
+            </div>
+            <div class="property-row" ${type === 'none' ? 'style="display:none"' : ''}>
+                <label class="property-label" for="arrowSize">Arrow Size:</label>
+                <div class="property-input"><input id="arrowSize" type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${obj.arrowSize || 1}"></div>
             </div>
         `;
     }
@@ -6789,14 +6772,7 @@ class TikZDrawApp {
                 <span class="property-label">Style:</span>
                 <div class="property-input">${this.renderLineStyleSelect(arc.lineStyle, 'lineStyle')}</div>
             </div>
-            <div class="property-row">
-                <span class="property-label">Arrow:</span>
-                <div class="property-input">${this.renderArrowSelect(arc.arrowEnd || 'none', 'arrowEnd')}</div>
-            </div>
-            <div class="property-row" ${(arc.arrowEnd && arc.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
-                <span class="property-label">Arrow Size:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${arc.arrowSize || 1.0}"></div>
-            </div>
+            ${this.renderArrowProperties(arc)}
         `;
     }
 
@@ -6929,14 +6905,7 @@ class TikZDrawApp {
                 <span class="property-label">Style:</span>
                 <div class="property-input">${this.renderLineStyleSelect(bezier.lineStyle, 'lineStyle')}</div>
             </div>
-            <div class="property-row">
-                <span class="property-label">Arrow:</span>
-                <div class="property-input">${this.renderArrowSelect(bezier.arrowEnd || 'none', 'arrowEnd')}</div>
-            </div>
-            <div class="property-row" ${(bezier.arrowEnd && bezier.arrowEnd !== 'none') ? '' : 'style="display:none"'}>
-                <span class="property-label">Arrow Size:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0.3" max="3" data-prop="arrowSize" value="${bezier.arrowSize || 1.0}"></div>
-            </div>
+            ${this.renderArrowProperties(bezier)}
         `;
     }
 
@@ -7267,7 +7236,15 @@ class TikZDrawApp {
             }
         }
         
-        selectedObj[prop] = value;
+        if (prop === 'arrowType' || prop === 'arrowPlacement') {
+            setArrowControl(selectedObj, prop, value);
+            const { type } = arrowSettings(selectedObj);
+            const panel = el.closest('#propertiesPanel');
+            panel.querySelector('[data-prop="arrowType"]').value = type;
+            panel.querySelector('[data-prop="arrowSize"]').closest('.property-row').style.display = type === 'none' ? 'none' : '';
+        } else {
+            selectedObj[prop] = value;
+        }
         this.render();
         this.updateObjectList();
     }
@@ -8603,6 +8580,7 @@ class TikZDrawApp {
             data.name = obj.name;
         }
         
+        if (obj.arrowEnd === 'none' && obj.arrowPlacement) data.arrowPlacement = obj.arrowPlacement;
         return data;
     }
     
@@ -8885,6 +8863,9 @@ class TikZDrawApp {
                 obj.id = data.id || obj.id;
                 obj.expanded = data.expanded || false;
                 obj.locked = data.locked || false;
+                if (obj.arrowEnd === 'none' && ['start', 'both'].includes(data.arrowPlacement)) {
+                    obj.arrowPlacement = data.arrowPlacement;
+                }
             }
         } catch (err) {
             console.error('Error deserializing object:', data, err);

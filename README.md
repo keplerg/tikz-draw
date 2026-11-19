@@ -167,7 +167,7 @@ Patterns use the fill color for pattern color. Export automatically includes `\u
 
 ## Arrows on Lines, Arcs, and Bézier Curves
 
-Choose Stealth, latex, or a simple open arrowhead at the start, end, or both ends. The arrow size scales each selected tip. Exports load `arrows.meta` automatically when the arrow needs it.
+In the properties panel, choose **Arrow Type** (Stealth, Latex, Simple, or None) and **Arrow Position** (End, Start, or Both) independently. For example, changing a double-ended line from Stealth to Latex keeps an arrow at both ends. **Arrow Size** scales the selected tips. Exports load `arrows.meta` automatically when the arrow needs it.
 
 ## LaTeX Labels
 

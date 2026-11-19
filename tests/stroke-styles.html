@@ -157,6 +157,84 @@ frame.addEventListener('load', () => {
         app.closeExport();
     });
 
+    function selectShape(shape) {
+        app.selectedObjects = [shape];
+        app.updatePropertiesPanel();
+    }
+
+    function arrowControl(property) {
+        const select = doc.querySelector('#propertiesPanel select[data-prop="' + property + '"]');
+        check(select, 'Missing arrow control: ' + property);
+        return select;
+    }
+
+    function choose(property, value) {
+        const select = arrowControl(property);
+        check(!select.disabled, 'Disabled arrow control: ' + property);
+        select.value = value;
+        check(select.value === value, 'Missing ' + property + ' option: ' + value);
+        select.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+    }
+
+    function checkArrow(type, placement, spec) {
+        check(arrowControl('arrowType').value === type, 'Wrong arrow type for ' + spec);
+        check(arrowControl('arrowPlacement').value === placement, 'Wrong placement for ' + spec);
+        check(app.selectedObjects[0].arrowEnd === spec, 'Unexpected stored arrow specification for ' + spec);
+    }
+
+    test('Arrow type and placement can be edited independently on each supported shape', () => {
+        for (const shape of [shapes[0], shapes[1], shapes[4], shapes[7]]) {
+            const [object] = open([{ ...shape, arrowEnd: 'latex-', arrowSize: 1.5 }]);
+            selectShape(object);
+            checkArrow('latex', 'start', 'latex-');
+            choose('arrowType', 'simple');
+            checkArrow('simple', 'start', '<-');
+            choose('arrowPlacement', 'both');
+            checkArrow('simple', 'both', '<->');
+            choose('arrowType', 'Stealth');
+            checkArrow('Stealth', 'both', 'Stealth-Stealth');
+            choose('arrowPlacement', 'end');
+            checkArrow('Stealth', 'end', '-Stealth');
+            const draw = app.generateTikZ().split('\n').find(line => /^\s*\\draw\b/.test(line));
+            check(draw?.includes('-{Stealth[scale=1.5]}'), 'Lost tip, placement or size in ' + draw);
+        }
+    });
+
+    test('A disabled arrow retains its placement across a project round trip', () => {
+        const [line] = open([shapes[0]]);
+        selectShape(line);
+        checkArrow('none', 'end', 'none');
+        choose('arrowPlacement', 'start');
+        checkArrow('none', 'start', 'none');
+        const project = JSON.parse(JSON.stringify(app.projectDrawing()));
+        app.loadProjectData(project);
+        selectShape(app.objects.find(obj => obj.id === line.id));
+        checkArrow('none', 'start', 'none');
+        choose('arrowType', 'latex');
+        checkArrow('latex', 'start', 'latex-');
+        choose('arrowType', 'none');
+        checkArrow('none', 'start', 'none');
+        choose('arrowType', 'simple');
+        checkArrow('simple', 'start', '<-');
+    });
+
+    test('Undo and redo restore each arrow control as a separate edit', () => {
+        const [line] = open([{ ...shapes[0], arrowEnd: 'Stealth-Stealth' }]);
+        selectShape(line);
+        choose('arrowType', 'simple');
+        choose('arrowPlacement', 'end');
+        const undo = doc.getElementById('undoBtn');
+        const redo = doc.getElementById('redoBtn');
+        undo.click();
+        checkArrow('simple', 'both', '<->');
+        undo.click();
+        checkArrow('Stealth', 'both', 'Stealth-Stealth');
+        redo.click();
+        checkArrow('simple', 'both', '<->');
+        redo.click();
+        checkArrow('simple', 'end', '->');
+    });
+
     results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
     results.textContent = report.join('\n');
 });
