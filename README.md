@@ -167,7 +167,17 @@ Patterns use the fill color for pattern color. Export automatically includes `\u
 
 ## Arrows on Lines, Arcs, and Bézier Curves
 
-Choose Stealth, latex, or a simple open arrowhead at the start, end, or both ends. The arrow size scales each selected tip. Exports load `arrows.meta` automatically when the arrow needs it.
+Choose **Arrow Type** and **Arrow Position** (End, Start, or Both) independently. For example, a line with Diamond and Both has a diamond at each end. Choose None to turn the tips off, or Simple for the default open arrow.
+
+The menu includes the standard TikZ `arrows.meta` tips, grouped by shape:
+
+- **Geometric** — Stealth, Latex, Triangle, Kite, Diamond, Turned Square, Square, Rectangle, Circle, Ellipse
+- **Barbs and brackets** — Straight Barb, Arc Barb, Hooks, Tee Barb, Bar, Bracket, Parenthesis
+- **Mathematical** — To, Computer Modern Rightarrow, Classical TikZ Rightarrow, Implies
+- **Line caps** — Butt Cap, Round Cap, Triangle Cap, Fast Round, Fast Triangle
+- **Radial** — Rays
+
+To is the TikZ shorthand for Computer Modern Rightarrow. **Arrow Size** sets the TikZ tip scale; some tips, including Implies, take their dimensions from the stroke. Exports load `arrows.meta` automatically when needed.
 
 ## LaTeX Labels
 

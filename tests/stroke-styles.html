@@ -17,6 +17,12 @@ frame.addEventListener('load', () => {
     const styles = ['solid', 'dashed', 'dotted', 'dashdotted', 'dashdotdotted',
         'loosely dashed', 'densely dashed', 'loosely dotted', 'densely dotted',
         'loosely dashdotted', 'densely dashdotted'];
+    const standardTips = [
+        'Stealth', 'Latex', 'Triangle', 'Kite', 'Diamond', 'Turned Square', 'Square', 'Rectangle', 'Circle', 'Ellipse',
+        'Straight Barb', 'Arc Barb', 'Hooks', 'Tee Barb', 'Bar', 'Bracket', 'Parenthesis',
+        'To', 'Computer Modern Rightarrow', 'Classical TikZ Rightarrow', 'Implies',
+        'Butt Cap', 'Round Cap', 'Triangle Cap', 'Fast Round', 'Fast Triangle', 'Rays'
+    ];
     const coords = [['A', 1, 2], ['B', 5, 2], ['C', 2, 3], ['D', 4, 4]].map(([name, x, y]) =>
         ({ type: 'TikZCoordinate', id: 'coord_' + name, name, x, y, showPoint: false }));
     const shapes = [
@@ -107,18 +113,21 @@ frame.addEventListener('load', () => {
         }
     });
 
+    function endpointPixels(shape, maskShaft = false, ends = [[1, 2], [5, 2]]) {
+        app.ctx.clearRect(0, 0, app.canvas.width, app.canvas.height);
+        app.drawObject(shape);
+        return ends.map(([x, y]) => {
+            const p = app.worldToScreen(x, y);
+            const pixels = app.ctx.getImageData(p.x - 32, p.y - 16, 64, 32).data;
+            return Array.from({ length: 64 * 32 }, (_, i) =>
+                maskShaft && Math.abs(Math.floor(i / 64) - 16) <= 1 ? 0 : pixels[i * 4 + 3]);
+        });
+    }
+
     function arrowPixels(line, arrowEnd, size) {
         line.arrowEnd = arrowEnd;
         line.arrowSize = size;
-        app.ctx.clearRect(0, 0, app.canvas.width, app.canvas.height);
-        app.drawObject(line);
-        return [1, 5].map(x => {
-            const p = app.worldToScreen(x, 2);
-            const pixels = app.ctx.getImageData(p.x - 32, p.y - 16, 64, 32).data;
-            // Exclude the horizontal shaft. Remaining alpha values describe the arrowhead.
-            return Array.from({ length: 64 * 32 }, (_, i) =>
-                Math.abs(Math.floor(i / 64) - 16) > 1 ? pixels[i * 4 + 3] : 0);
-        });
+        return endpointPixels(line, true);
     }
 
     test('Canvas draws the selected default, Stealth or latex tip at the requested ends and size', () => {
@@ -155,6 +164,193 @@ frame.addEventListener('load', () => {
         check(explicitTips.length === 2 || (draw.includes('<->') && explicitTips.length === 1),
             'The configured scale must apply to both tips: ' + draw);
         app.closeExport();
+    });
+
+    function selectShape(shape) {
+        app.selectedObjects = [shape];
+        app.updatePropertiesPanel();
+    }
+
+    function arrowControl(property) {
+        const select = doc.querySelector('#propertiesPanel select[data-prop="' + property + '"]');
+        check(select, 'Missing arrow control: ' + property);
+        return select;
+    }
+
+    function choose(property, value) {
+        const select = arrowControl(property);
+        check(!select.disabled, 'Disabled arrow control: ' + property);
+        select.value = value;
+        check(select.value === value, 'Missing ' + property + ' option: ' + value);
+        select.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+    }
+
+    function checkArrow(type, placement, spec) {
+        check(arrowControl('arrowType').value === type, 'Wrong arrow type for ' + spec);
+        check(arrowControl('arrowPlacement').value === placement, 'Wrong placement for ' + spec);
+        check(app.selectedObjects[0].arrowEnd === spec, 'Unexpected stored arrow specification for ' + spec);
+    }
+
+    test('Arrow type and placement can be edited independently on each supported shape', () => {
+        for (const shape of [shapes[0], shapes[1], shapes[4], shapes[7]]) {
+            const [object] = open([{ ...shape, arrowEnd: 'latex-', arrowSize: 1.5 }]);
+            selectShape(object);
+            checkArrow('latex', 'start', 'latex-');
+            choose('arrowType', 'simple');
+            checkArrow('simple', 'start', '<-');
+            choose('arrowPlacement', 'both');
+            checkArrow('simple', 'both', '<->');
+            choose('arrowType', 'Stealth');
+            checkArrow('Stealth', 'both', 'Stealth-Stealth');
+            choose('arrowPlacement', 'end');
+            checkArrow('Stealth', 'end', '-Stealth');
+            const draw = app.generateTikZ().split('\n').find(line => /^\s*\\draw\b/.test(line));
+            check(draw?.includes('-{Stealth[scale=1.5]}'), 'Lost tip, placement or size in ' + draw);
+        }
+    });
+
+    test('A disabled arrow retains its placement across a project round trip', () => {
+        const [line] = open([shapes[0]]);
+        selectShape(line);
+        checkArrow('none', 'end', 'none');
+        choose('arrowPlacement', 'start');
+        checkArrow('none', 'start', 'none');
+        const project = JSON.parse(JSON.stringify(app.projectDrawing()));
+        app.loadProjectData(project);
+        selectShape(app.objects.find(obj => obj.id === line.id));
+        checkArrow('none', 'start', 'none');
+        choose('arrowType', 'latex');
+        checkArrow('latex', 'start', 'Latex-');
+        choose('arrowType', 'none');
+        checkArrow('none', 'start', 'none');
+        choose('arrowType', 'simple');
+        checkArrow('simple', 'start', '<-');
+    });
+
+    test('Undo and redo restore each arrow control as a separate edit', () => {
+        const [line] = open([{ ...shapes[0], arrowEnd: 'Stealth-Stealth' }]);
+        selectShape(line);
+        choose('arrowType', 'simple');
+        choose('arrowPlacement', 'end');
+        const undo = doc.getElementById('undoBtn');
+        const redo = doc.getElementById('redoBtn');
+        undo.click();
+        checkArrow('simple', 'both', '<->');
+        undo.click();
+        checkArrow('Stealth', 'both', 'Stealth-Stealth');
+        redo.click();
+        checkArrow('simple', 'both', '<->');
+        redo.click();
+        checkArrow('simple', 'end', '->');
+    });
+
+    test('All standard tips export at the selected ends with the requested scale', () => {
+        const [line] = open([{ ...shapes[0], arrowSize: 1.5 }]);
+        selectShape(line);
+        for (const name of standardTips) {
+            choose('arrowType', name === 'Latex' ? 'latex' : name);
+            const tip = '{' + name + '[scale=1.5]}';
+            for (const [position, expected] of [['end', '-' + tip], ['start', tip + '-'], ['both', tip + '-' + tip]]) {
+                choose('arrowPlacement', position);
+                const code = app.generateTikZ();
+                check(/^\\usetikzlibrary\{[^}]*\barrows\.meta\b[^}]*\}/m.test(code), 'Missing arrows.meta for ' + name);
+                const draw = code.match(/^\s*\\draw\[(.*)\]\s+\(/m);
+                check(draw && draw[1].split(/,\s*/).includes(expected), 'Expected ' + expected + ' in ' + code);
+            }
+        }
+        choose('arrowType', 'Diamond');
+        const size = doc.querySelector('#propertiesPanel input[data-prop="arrowSize"]');
+        size.value = '1';
+        size.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        check(/^\\usetikzlibrary\{[^}]*\barrows\.meta\b[^}]*\}/m.test(app.generateTikZ()),
+            'An unscaled Diamond still requires arrows.meta');
+    });
+
+    test('Canvas renders each standard tip and distinguishes the different tip families', () => {
+        // The dashed shaft ends in a gap, so even a flat cap can be seen at the endpoint.
+        const [line] = open([{ ...shapes[0], arrowSize: 2, thickness: 'very thick', lineStyle: 'loosely dashed' }]);
+        selectShape(line);
+        const baseline = endpointPixels(line)[1].join(',');
+        const representatives = ['Stealth', 'Triangle', 'Square', 'Diamond', 'Circle', 'Hooks', 'Bar', 'Rays'];
+        const seen = new Set();
+        for (const name of standardTips) {
+            choose('arrowType', name === 'Latex' ? 'latex' : name);
+            const ink = endpointPixels(line)[1].join(',');
+            check(ink !== baseline, 'Canvas did not display ' + name);
+            if (representatives.includes(name)) {
+                check(!seen.has(ink), 'Canvas reused another shape for ' + name);
+                seen.add(ink);
+            }
+        }
+    });
+
+    test('Project round trip preserves named tips and old Latex spellings at their original scale', () => {
+        const names = [...standardTips, 'latex', 'LaTeX'];
+        open(names.map(name => ({ ...shapes[0], arrowEnd: name + '-', arrowSize: 1 })));
+        const project = JSON.parse(JSON.stringify(app.projectDrawing()));
+        app.loadProjectData(project);
+        const draws = app.generateTikZ().split('\n').filter(line => /^\s*\\draw\b/.test(line));
+        names.forEach((name, i) => {
+            selectShape(app.objects.find(obj => obj.id === 'shape_' + i));
+            const value = name.toLowerCase() === 'latex' ? 'latex' : name;
+            checkArrow(value, 'start', name + '-');
+            check(draws[i].includes(name + '-') || draws[i].includes('{' + name + '}-'),
+                'Reload changed the nominal tip in ' + draws[i]);
+            choose('arrowPlacement', 'end');
+            checkArrow(value, 'end', '-' + name);
+        });
+    });
+
+    test('Open curves draw circles at the requested ends; closed Béziers keep their original stroke', () => {
+        const arc = { ...shapes[4], startAngle: 0, endAngle: 90 };
+        for (const [shape, ends] of [[arc, [[3, 2], [1, 4]]], [shapes[7], [[1, 2], [5, 2]]]]) {
+            const [curve] = open([{ ...shape, arrowSize: 2, thickness: 'thick' }]);
+            const baseline = endpointPixels(curve, false, ends);
+            for (const [spec, active] of [['Circle-', [true, false]], ['-Circle', [false, true]], ['Circle-Circle', [true, true]]]) {
+                curve.arrowEnd = spec;
+                const pixels = endpointPixels(curve, false, ends);
+                pixels.forEach((region, i) => {
+                    // Compare ink area so subpixel changes in the trimmed curve do not count as tips.
+                    const added = region.reduce((sum, alpha, j) => sum + alpha - baseline[i][j], 0) / 255;
+                    check(active[i] ? added > 8 : Math.abs(added) < 5, shape.type + ' misdraws endpoint ' + i + ' for ' + spec);
+                });
+            }
+        }
+        const [closed] = open([{ ...shapes[7], closed: true, arrowSize: 2, thickness: 'thick' }]);
+        endpointPixels(closed);
+        const before = app.canvas.toDataURL();
+        closed.arrowEnd = 'Circle-Circle';
+        endpointPixels(closed);
+        check(app.canvas.toDataURL() === before, 'A closed Bézier was trimmed or given arrowheads');
+    });
+
+    test('Oversized tips on a short arc or cubic leave no reversed shaft', () => {
+        const curves = open([
+            { ...shapes[4], startAngle: 0, endAngle: 3, lineStyle: 'dashed', arrowSize: 3 },
+            { ...shapes[7], control1: 'A', control2: 'B', lineStyle: 'dashed', arrowSize: 3 }
+        ]);
+        app.getCoordByName('B').x = 1.1; // A four-pixel cubic; the arc is also about four pixels long.
+        const ctx = app.ctx;
+        const stroke = ctx.stroke;
+        const fill = ctx.fill;
+        function hasShaft(curve) {
+            ctx.clearRect(0, 0, app.canvas.width, app.canvas.height);
+            app.drawObject(curve);
+            return ctx.getImageData(0, 0, app.canvas.width, app.canvas.height).data.some((v, i) => i % 4 === 3 && v > 0);
+        }
+        try {
+            // Render just the dashed shaft, so that the filled circles cannot conceal an erroneous stroke.
+            ctx.stroke = function (...args) { if (this.getLineDash().length) stroke.apply(this, args); };
+            ctx.fill = () => {};
+            for (const curve of curves) {
+                check(hasShaft(curve), 'Missing reference shaft for ' + curve.type);
+                curve.arrowEnd = 'Circle-Circle';
+                check(!hasShaft(curve), 'Overlapping tips left a shaft on the short ' + curve.type);
+            }
+        } finally {
+            ctx.stroke = stroke;
+            ctx.fill = fill;
+        }
     });
 
     results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
