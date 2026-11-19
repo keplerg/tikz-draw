@@ -25,6 +25,7 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 - **Undo/Redo**: Full undo/redo support with 50-state history (Ctrl+Z/Ctrl+Y)
 - **Arrow Key Nudging**: Precise positioning with 0.1 unit (normal) or 0.01 unit (Shift) increments - works with all object types
 - **Clean TikZ Export**: Generates well-formatted, readable TikZ code
+- **Fill enclosed areas**: Click inside circles, ellipses, rectangles or areas enclosed by paths, lines, arcs and Bézier curves.
 - **Project Save/Load**: Save your work as JSON and continue later
 - **Customizable Styling**: Colors, line styles, thicknesses, arrow types, patterns, and more
 - **Snap to Grid**: Configurable grid snapping for precise positioning (0.25 units)
@@ -55,13 +56,14 @@ start tikz-draw.html      # Windows
 | Rotate | O | Rotate objects around their center (5° snap, Ctrl for 1° snap) |
 | Point | P | Create coordinate points |
 | Line | L | Draw line segments between points |
+| Fill | F | Color a closed shape or an area enclosed by lines and curves |
 | Vector | A | Draw arrows/vectors between points |
 | Circle | C | Draw circles (click center, drag radius) |
 | Arc | R | Draw circular arcs |
 | Rectangle | B | Draw rectangles |
 | Label | T | Add text/LaTeX labels at points |
 | Image | I | Embed images (PNG/JPG/GIF) with scaling and rotation |
-| Path | H | Draw multi-point paths |
+| Path | H | Click the first vertex to close a path, or Shift-click the last vertex to finish an open path |
 | Curve | Q | Draw Bézier curves |
 | Grid | G | Add a coordinate grid |
 
@@ -87,6 +89,14 @@ start tikz-draw.html      # Windows
 8. **Copy & Duplicate**: Copy objects with Ctrl+C and paste with Ctrl+V. Works with single or multiple objects - relationships are preserved!
 
 9. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
+
+## Filling an Area
+
+Press **F** (or choose **Fill**) and click inside a circle, ellipse, rectangle, closed path, or an area enclosed by several objects. Use **Fill color** and **Opacity** in the properties panel to change the default blue shading and 30% opacity.
+
+A straight line across a circle creates two areas that can be shaded separately. Overlapping circles create a lens, and an enclosed loop inside another shape leaves a hole. You can also join Bézier curves or arcs to other curves or lines. To fill a single open Bézier, select it, check **Close curve with a line**, then click between the curve and the closing line with **Fill**.
+
+Click an existing area with **Fill** to edit its shading. Moving a boundary or a Bézier control point updates its fill. Delete the fill to keep just the outline. Project files and TikZ exports preserve curved boundaries and holes.
 
 ## Navigation
 
@@ -219,6 +229,7 @@ The exported TikZ code is clean and well-organized:
 | O | Rotate tool |
 | P | Point tool |
 | L | Line tool |
+| F | Fill an enclosed area |
 | A | Vector (Arrow) tool |
 | C | Circle tool |
 | R | Arc tool |
@@ -235,7 +246,7 @@ The exported TikZ code is clean and well-organized:
 |-----|--------|
 | **Ctrl+C** | Copy selected object(s) |
 | **Ctrl+V** | Paste (with 0.5 unit offset) - maintains relationships |
-| **Ctrl+Z** | Undo |
+| **Ctrl+Z** | Undo the last edit, or cancel the current drawing preview |
 | **Ctrl+Y** or **Ctrl+Shift+Z** | Redo |
 | **Delete** / **Backspace** | Delete selected object(s) |
 | **Escape** | Clear selection / Cancel operation |
@@ -292,7 +303,8 @@ Button states update automatically based on current selection and clipboard stat
 
 Save your work as JSON files to continue editing later:
 
-- **Save**: Click "Save" to download a `.json` file
+- **Save**: Click "Save" and choose a location for the `.json` file. The editor clears the unsaved-changes reminder when the file has been written. Any edits made during the save still need saving.
+- Browsers that use a download link cannot report whether the file reached disk. Check the downloaded JSON before closing the tab. The reminder stays active for modified drawings in these browsers.
 - **Open**: Click "Open" to load a previously saved project
 
 Project files preserve all objects, positions, styles, and view settings.
@@ -343,7 +355,8 @@ Project files preserve all objects, positions, styles, and view settings.
 - **Patterns**: Combine fill colors with patterns for visual variety. Pattern color matches the fill color
 - **Point Labels**: Points can have both an editor name (shown in gray) and an export label (rendered in LaTeX)
 - **Hide Invisible Points**: Toggle checkbox to hide/show coordinate points that aren't marked as visible
-- **Undo/Redo**: Don't worry about mistakes - every action can be undone with Ctrl+Z
+- **Undo/Redo**: Creating a shape takes one undo step, including any endpoints or control points created with it. For example, undoing a line between two existing points removes the line and keeps both points. Redo restores the shape.
+- **Unfinished drawings**: Escape, right-click, Undo, or switching tools cancels the preview and preserves the previous history. Saving or exporting during a preview includes only completed objects.
 
 ## Browser Compatibility
 
