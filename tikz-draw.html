@@ -233,6 +233,7 @@
         
         .property-input {
             flex: 1;
+            min-width: 0;
         }
         
         .property-input input,
@@ -1121,31 +1122,46 @@ function tikzPoint(point, minDecimals = 0) {
     return `(${tikzNumber(point.x, minDecimals)}, ${tikzNumber(point.y, minDecimals)})`;
 }
 
+const ARROW_TIP_GROUPS = {
+    'Geometric': ['Stealth', 'Latex', 'Triangle', 'Kite', 'Diamond', 'Turned Square', 'Square', 'Rectangle', 'Circle', 'Ellipse'],
+    'Barbs and brackets': ['Straight Barb', 'Arc Barb', 'Hooks', 'Tee Barb', 'Bar', 'Bracket', 'Parenthesis'],
+    'Mathematical': ['To', 'Computer Modern Rightarrow', 'Classical TikZ Rightarrow', 'Implies'],
+    'Line caps': ['Butt Cap', 'Round Cap', 'Triangle Cap', 'Fast Round', 'Fast Triangle'],
+    'Radial': ['Rays']
+};
+const STANDARD_ARROW_TIPS = new Set(Object.values(ARROW_TIP_GROUPS).flat());
+
 function arrowTips(spec) {
     const [start, end] = (spec || '').split('-');
-    const names = { '<': 'To', '>': 'To', latex: 'Latex', Latex: 'Latex', Stealth: 'Stealth' };
-    return { start: names[start] || '', end: names[end] || '' };
+    const tipName = tip => {
+        if (tip === '<' || tip === '>') return 'To';
+        if (tip === 'latex' || tip === 'LaTeX') return 'Latex';
+        return STANDARD_ARROW_TIPS.has(tip) ? tip : '';
+    };
+    return { start: tipName(start), end: tipName(end) };
 }
-
-const ARROW_TYPE_LABELS = { none: 'None', Stealth: 'Stealth', latex: 'Latex', simple: 'Simple' };
 
 function arrowSettings(obj) {
     const spec = obj.arrowEnd && obj.arrowEnd !== 'none' ? obj.arrowEnd : '-';
     const [start, end = ''] = spec.split('-');
-    const typeOf = tip => tip === '<' || tip === '>' ? 'simple' : tip === 'Latex' ? 'latex' : tip;
+    const typeOf = tip => {
+        if (tip === '<' || tip === '>') return 'simple';
+        if (tip === 'Latex' || tip === 'latex' || tip === 'LaTeX') return 'latex';
+        return !tip || STANDARD_ARROW_TIPS.has(tip) ? tip : 'custom';
+    };
     const startType = typeOf(start);
     const endType = typeOf(end);
     const type = startType && endType && startType !== endType ? 'custom' : startType || endType || 'none';
     const placement = start ? (end ? 'both' : 'start') : (end ? 'end' : obj.arrowPlacement || 'end');
-    return { start, end, placement, type: Object.hasOwn(ARROW_TYPE_LABELS, type) ? type : 'custom' };
+    return { start, end, placement, type };
 }
 
 function setArrowControl(obj, prop, value) {
     let { start, end, placement } = arrowSettings(obj);
     if (prop === 'arrowType') {
-        start = value === 'simple' ? '<' : value;
-        end = value === 'simple' ? '>' : value;
-        if (value === 'none') start = end = '';
+        const tip = value === 'none' ? '' : value === 'latex' ? 'Latex' : value;
+        start = tip === 'simple' ? '<' : tip;
+        end = tip === 'simple' ? '>' : tip;
     } else {
         placement = value;
         if (!start) start = end === '>' ? '<' : end;
@@ -2281,6 +2297,79 @@ function findSegmentFace(objects, getCoordByName, x, y) {
     });
     const loops = legacy ? rings.map(ring => ring.map(v => v.ref)) : [];
     return { loops, curveLoops: legacy ? null : curveLoops, boundarySegments: [...sources] };
+}
+
+// Default PGF arrows.meta outlines, rendered with a 0.8 pt shaft using dvisvgm.
+// Each path points right with its tip end at (0, 0). The inset gives the shaft's stopping distance.
+function arrowProfile(inset, path, paint, strokeWidth = 0.8) {
+    return { inset, path: new Path2D(path), paint, strokeWidth };
+}
+
+const CANVAS_ARROW_PROFILES = {
+    'Stealth': arrowProfile(4.11, 'M-1.14 0L-5.29 -1.57L-3.91 0L-5.29 1.57Z', 'fill-stroke'),
+    'Latex': arrowProfile(6.18, 'M-1.64 0C-2.2 -0.14 -4.65 -0.92 -6.18 -1.77V1.77C-4.65 0.92 -2.2 0.14 -1.64 0Z', 'fill-stroke'),
+    'Triangle': arrowProfile(4.62, 'M-0.8 0L-4.42 -2.18V0V2.18Z', 'fill-stroke'),
+    'Kite': arrowProfile(7.33, 'M-1.26 0L-5.81 -1.52L-7.33 0L-5.81 1.52Z', 'fill-stroke'),
+    'Diamond': arrowProfile(7.0, 'M-0.89 0L-3.95 -1.53L-7 0L-3.95 1.53Z', 'fill-stroke'),
+    'Turned Square': arrowProfile(5.61, 'M-0.56 0L-3.09 -2.52L-5.61 0L-3.09 2.53Z', 'fill-stroke'),
+    'Square': arrowProfile(3.97, 'M-0.4 -1.79H-3.97V1.79H-0.4Z', 'fill-stroke'),
+    'Rectangle': arrowProfile(6.18, 'M-0.4 -1.24H-6.18V1.25H-0.4Z', 'fill-stroke'),
+    'Circle': arrowProfile(4.53, 'M-0.4 0C-0.4 -1.14 -1.32 -2.07 -2.46 -2.07S-4.53 -1.14 -4.53 0S-3.61 2.07 -2.46 2.07S-0.4 1.14 -0.4 0Z', 'fill-stroke'),
+    'Ellipse': arrowProfile(6.84, 'M-0.4 0C-0.4 -0.78 -1.84 -1.41 -3.62 -1.41S-6.84 -0.78 -6.84 0C-6.84 0.78 -5.39 1.41 -3.62 1.41S-0.4 0.78 -0.4 0Z', 'fill-stroke'),
+    'Classical TikZ Rightarrow': arrowProfile(0.8, 'M-2.26 -2.16C-2.13 -1.35 -0.71 -0.14 -0.32 0C-0.71 0.14 -2.13 1.35 -2.26 2.16', 'round-stroke', 0.64),
+    'Computer Modern Rightarrow': arrowProfile(0.8, 'M-2.95 -3.11C-2.48 -1.25 -1.45 -0.36 -0.4 0C-1.45 0.36 -2.48 1.24 -2.95 3.11', 'round-stroke'),
+    'Implies': arrowProfile(0.61, 'M-0.88 -0.53C-0.75 -0.25 -0.4 0 -0.2 0C-0.4 0 -0.75 0.25 -0.88 0.53', 'round-stroke', 0.4),
+    'Straight Barb': arrowProfile(0.96, 'M-3.65 -3.09L-0.56 0L-3.65 3.09', 'stroke'),
+    'Arc Barb': arrowProfile(0.4, 'M-3.09 -2.69C-1.6 -2.69 -0.4 -1.48 -0.4 0S-1.6 2.69 -3.09 2.69', 'stroke'),
+    'Hooks': arrowProfile(1.54, 'M-1.74 -2.69C-1 -2.69 -0.4 -2.09 -0.4 -1.34S-1 0 -1.74 0C-1 0 -0.4 0.6 -0.4 1.35C-0.4 2.09 -1 2.69 -1.74 2.69', 'stroke'),
+    'Tee Barb': arrowProfile(1.74, 'M-3.09 -2.69H0M-1.54 -2.69V2.69M-3.09 2.69H0', 'stroke'),
+    'Bar': arrowProfile(0.6, 'M-0.4 -3.09V3.09', 'stroke'),
+    'Bracket': arrowProfile(0.6, 'M-1.94 -2.69H-0.4V2.69H-1.94', 'stroke'),
+    'Parenthesis': arrowProfile(0.4, 'M-1.98 -2.73C-0.47 -1.86 0.05 0.07 -0.82 1.58C-1.1 2.06 -1.5 2.45 -1.98 2.73', 'stroke'),
+    'Butt Cap': arrowProfile(0.8, 'M-1 -0.4H-0.4H0V0.4H-1Z', 'fill'),
+    'Round Cap': arrowProfile(0.8, 'M-1 -0.4H-0.4C-0.18 -0.4 0 -0.22 0 0S-0.18 0.4 -0.4 0.4H-1Z', 'fill'),
+    'Triangle Cap': arrowProfile(0.8, 'M-1 -0.4H-0.4L0 0L-0.4 0.4H-1Z', 'fill'),
+    'Fast Round': arrowProfile(0.8, 'M-0.8 -0.4H-0.4C-0.18 -0.4 0 -0.22 0 0C0 0.22 -0.18 0.4 -0.4 0.4H-0.8C-0.58 0.4 -0.4 0.22 -0.4 0C-0.4 -0.22 -0.58 -0.4 -0.8 -0.4Z', 'fill'),
+    'Fast Triangle': arrowProfile(0.8, 'M-0.8 -0.4H-0.4L0 0L-0.4 0.4H-0.8L-0.4 0Z', 'fill'),
+    'Rays': arrowProfile(2.46, 'M-0.28 -2.18L-2.46 0M-4.65 -2.18L-2.46 0M-4.65 2.18L-2.46 0M-0.28 2.18L-2.46 0', 'stroke'),
+};
+
+function canvasArrow(tip, size, lineWidth, zoom) {
+    const profile = CANVAS_ARROW_PROFILES[tip === 'To' ? 'Computer Modern Rightarrow' : tip];
+    if (!profile) return null;
+    // PGF sizes caps and the single-line Implies tip from the shaft thickness.
+    const cap = tip.endsWith(' Cap') || tip.startsWith('Fast ');
+    const lineScale = lineWidth / 0.8;
+    const shapeScale = size * (lineWidth + Math.max(1, zoom / 50));
+    const scaleY = cap || tip === 'Implies' ? lineScale : shapeScale;
+    const scaleX = cap ? lineScale * size : scaleY;
+    return { profile, scaleX, scaleY, inset: profile.inset * scaleX };
+}
+
+function trimArrowShaft(curve, startDistance, endDistance) {
+    if (!startDistance && !endDistance) return curve;
+    if (curve.kind !== 'cubic') {
+        const length = curve.kind === 'arc' ? Math.abs(curve.sweep) * curve.rx :
+            Math.hypot(curve.p1.x - curve.p0.x, curve.p1.y - curve.p0.y);
+        return length > startDistance + endDistance ?
+            fillPrimitiveSpan(curve, startDistance / length, 1 - endDistance / length) : null;
+    }
+
+    // Use distances along the curve, including when a handle coincides with an endpoint.
+    const samples = fillPrimitiveSamples(curve, 0.15);
+    let length = 0;
+    const distances = samples.map((point, i) => {
+        if (i) length += Math.hypot(point.x - samples[i-1].x, point.y - samples[i-1].y);
+        return length;
+    });
+    if (length <= startDistance + endDistance) return null;
+    function parameterAt(distance) {
+        if (distance <= 0) return 0;
+        const i = distances.findIndex(d => d >= distance);
+        const fraction = (distance - distances[i-1]) / (distances[i] - distances[i-1]);
+        return samples[i-1].t + fraction * (samples[i].t - samples[i-1].t);
+    }
+    return fillPrimitiveSpan(curve, parameterAt(startDistance), parameterAt(length - endDistance));
 }
 
 class TikZDrawApp {
@@ -4986,24 +5075,7 @@ class TikZDrawApp {
         ctx.lineWidth = this.getThickness(seg.thickness);
         ctx.setLineDash(this.getLineDash(seg.lineStyle));
 
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw arrowheads if specified
-        if (seg.arrowEnd && seg.arrowEnd !== 'none') {
-            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-            const arrowSize = 10 * (seg.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = arrowTips(seg.arrowEnd);
-            if (arrows.end) {
-                this.drawArrowhead(p2.x, p2.y, angle, arrowSize, arrows.end);
-            }
-            if (arrows.start) {
-                this.drawArrowhead(p1.x, p1.y, angle + Math.PI, arrowSize, arrows.start);
-            }
-        }
+        this.strokeArrowPath(seg, { kind: 'line', p0: p1, p1: p2 });
 
         // Draw embedded nodes AFTER the line
         // Calculate line angle for sloped labels (in screen coordinates, Y is inverted)
@@ -5211,35 +5283,62 @@ class TikZDrawApp {
         return this.ctx.createPattern(patternCanvas, 'repeat');
     }
 
-    drawArrowhead(x, y, angle, size, tip) {
+    strokeArrowPath(obj, curve) {
         const ctx = this.ctx;
-        const halfWidth = size * 0.4;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        ctx.beginPath();
-        if (tip === 'To') {
-            ctx.moveTo(-size, -halfWidth);
-            ctx.quadraticCurveTo(-0.65 * size, -0.15 * halfWidth, 0, 0);
-            ctx.quadraticCurveTo(-0.65 * size, 0.15 * halfWidth, -size, halfWidth);
-            ctx.stroke();
-        } else {
-            ctx.moveTo(0, 0);
-            if (tip === 'Latex') {
-                ctx.quadraticCurveTo(-0.55 * size, -halfWidth, -size, -halfWidth);
-                ctx.lineTo(-size, halfWidth);
-                ctx.quadraticCurveTo(-0.55 * size, halfWidth, 0, 0);
+        const tips = obj.closed ? {} : arrowTips(obj.arrowEnd);
+        const size = obj.arrowSize || 1;
+        const start = canvasArrow(tips.start, size, ctx.lineWidth, this.zoom);
+        const end = canvasArrow(tips.end, size, ctx.lineWidth, this.zoom);
+        const shaft = trimArrowShaft(curve, start?.inset || 0, end?.inset || 0);
+        if (shaft) {
+            ctx.beginPath();
+            if (shaft.kind === 'arc') {
+                ctx.arc(shaft.cx, shaft.cy, shaft.rx, shaft.start, shaft.start + shaft.sweep, shaft.sweep < 0);
             } else {
-                ctx.lineTo(-size, -halfWidth);
-                ctx.lineTo(-0.65 * size, 0);
-                ctx.lineTo(-size, halfWidth);
+                ctx.moveTo(shaft.p0.x, shaft.p0.y);
+                if (shaft.kind === 'line') ctx.lineTo(shaft.p1.x, shaft.p1.y);
+                else ctx.bezierCurveTo(shaft.p1.x, shaft.p1.y, shaft.p2.x, shaft.p2.y, shaft.p3.x, shaft.p3.y);
             }
-            ctx.closePath();
-            ctx.fill();
+            if (obj.closed) ctx.closePath();
+            // Keep dashes anchored to the original path when its start is shortened.
+            const phase = ctx.lineDashOffset;
+            if (start) ctx.lineDashOffset = phase + start.inset;
+            ctx.stroke();
+            ctx.lineDashOffset = phase;
+        }
+        ctx.setLineDash([]);
+        if (start) this.drawArrowhead(curve, 0, start);
+        if (end) this.drawArrowhead(curve, 1, end);
+    }
+
+    drawArrowhead(curve, t, { profile, scaleX, scaleY }) {
+        const point = fillPrimitivePoint(curve, t);
+        let tangent = fillPrimitiveDerivative(curve, t);
+        if (!tangent.x && !tangent.y && curve.kind === 'cubic') {
+            const controls = t === 0 ? [curve.p2, curve.p3] : [curve.p1, curve.p0];
+            const control = controls.find(p => p.x !== point.x || p.y !== point.y);
+            if (control) {
+                const direction = t === 0 ? 1 : -1;
+                tangent = { x: direction * (control.x - point.x), y: direction * (control.y - point.y) };
+            }
+        }
+        if (!tangent.x && !tangent.y) return;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(point.x, point.y);
+        ctx.rotate(Math.atan2(tangent.y, tangent.x) + (t === 0 ? Math.PI : 0));
+        ctx.scale(scaleX, scaleY);
+        ctx.fillStyle = ctx.strokeStyle;
+        if (profile.paint === 'fill' || profile.paint === 'fill-stroke') ctx.fill(profile.path);
+        if (profile.paint !== 'fill') {
+            ctx.lineWidth = profile.strokeWidth;
+            ctx.lineCap = profile.paint === 'round-stroke' ? 'round' : 'butt';
+            ctx.lineJoin = profile.paint === 'round-stroke' ? 'round' : 'miter';
+            ctx.stroke(profile.path);
         }
         ctx.restore();
     }
-    
+
     drawCircle(circle) {
         const center = this.getCoordByName(circle.center);
         if (!center) return;
@@ -5324,34 +5423,10 @@ class TikZDrawApp {
         ctx.lineWidth = this.getThickness(arc.thickness);
         ctx.setLineDash(this.getLineDash(arc.lineStyle));
 
-        // Convert angles (canvas y is inverted)
-        const startRad = -arc.startAngle * Math.PI / 180;
-        const endRad = startRad - fillArcSweep(arc.startAngle, arc.endAngle);
-
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, radius, startRad, endRad, true);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw arrowheads if specified
-        if (arc.arrowEnd && arc.arrowEnd !== 'none') {
-            const arrowSize = 10 * (arc.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = arrowTips(arc.arrowEnd);
-
-            // Calculate positions and tangent angles at arc endpoints
-            const startX = pos.x + radius * Math.cos(startRad);
-            const startY = pos.y + radius * Math.sin(startRad);
-            const endX = pos.x + radius * Math.cos(endRad);
-            const endY = pos.y + radius * Math.sin(endRad);
-
-            // The arc travels toward decreasing angles in canvas coordinates.
-            if (arrows.end) {
-                this.drawArrowhead(endX, endY, endRad - Math.PI / 2, arrowSize, arrows.end);
-            }
-            if (arrows.start) {
-                this.drawArrowhead(startX, startY, startRad + Math.PI / 2, arrowSize, arrows.start);
-            }
-        }
+        this.strokeArrowPath(arc, {
+            kind: 'arc', cx: pos.x, cy: pos.y, rx: radius, ry: radius, rotation: 0,
+            start: -arc.startAngle * Math.PI / 180, sweep: -fillArcSweep(arc.startAngle, arc.endAngle)
+        });
     }
     
     drawRectangle(rect) {
@@ -5635,31 +5710,7 @@ class TikZDrawApp {
         ctx.lineWidth = this.getThickness(bezier.thickness);
         ctx.setLineDash(this.getLineDash(bezier.lineStyle));
 
-        // Draw cubic bezier with two control points
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.bezierCurveTo(pc1.x, pc1.y, pc2.x, pc2.y, p2.x, p2.y);
-        if (bezier.closed) ctx.closePath();
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw arrowheads if specified
-        if (!bezier.closed && bezier.arrowEnd && bezier.arrowEnd !== 'none') {
-            const arrowSize = 10 * (bezier.arrowSize || 1.0) * Math.max(1, this.zoom / 50);
-            const arrows = arrowTips(bezier.arrowEnd);
-
-            // A control point can coincide with its endpoint. The first distinct point gives the tangent.
-            const endControl = [pc2, pc1, p1].find(p => p.x !== p2.x || p.y !== p2.y);
-            if (arrows.end && endControl) {
-                const angle = Math.atan2(p2.y - endControl.y, p2.x - endControl.x);
-                this.drawArrowhead(p2.x, p2.y, angle, arrowSize, arrows.end);
-            }
-            const startControl = [pc1, pc2, p2].find(p => p.x !== p1.x || p.y !== p1.y);
-            if (arrows.start && startControl) {
-                const angle = Math.atan2(p1.y - startControl.y, p1.x - startControl.x);
-                this.drawArrowhead(p1.x, p1.y, angle, arrowSize, arrows.start);
-            }
-        }
+        this.strokeArrowPath(bezier, { kind: 'cubic', p0: p1, p1: pc1, p2: pc2, p3: p2 });
 
         // Draw control handles if selected
         if (this.selectedObjects.length === 1 && this.selectedObjects[0] === bezier) {
@@ -6660,8 +6711,10 @@ class TikZDrawApp {
 
     renderArrowProperties(obj) {
         const { type, placement } = arrowSettings(obj);
-        const options = Object.entries(ARROW_TYPE_LABELS).map(([value, label]) =>
-            `<option value="${value}" ${value === type ? 'selected' : ''}>${label}</option>`
+        const option = (label, value = label) =>
+            `<option value="${value}" ${value === type ? 'selected' : ''}>${label}</option>`;
+        const groups = Object.entries(ARROW_TIP_GROUPS).map(([group, tips]) =>
+            `<optgroup label="${group}">${tips.map(tip => option(tip, tip === 'Latex' ? 'latex' : tip)).join('')}</optgroup>`
         ).join('');
         return `
             <div class="property-row">
@@ -6669,7 +6722,7 @@ class TikZDrawApp {
                 <div class="property-input">
                     <select id="arrowType" data-prop="arrowType">
                         ${type === 'custom' ? '<option value="custom" selected disabled>Custom</option>' : ''}
-                        ${options}
+                        ${option('None', 'none')}${option('Simple', 'simple')}${groups}
                     </select>
                 </div>
             </div>
@@ -8224,8 +8277,10 @@ class TikZDrawApp {
     generateTikZ() {
         let lines = [];
 
-        if (this.objects.some(o => o.arrowEnd && o.arrowEnd !== 'none' &&
-            (/Stealth|Latex/.test(o.arrowEnd) || Number(o.arrowSize ?? 1) !== 1))) {
+        if (this.objects.some(o => o.arrowEnd && o.arrowEnd !== 'none' && (
+            Number(o.arrowSize ?? 1) !== 1 ||
+            o.arrowEnd.split('-').some(tip => STANDARD_ARROW_TIPS.has(tip) || tip === 'LaTeX')
+        ))) {
             lines.push('\\usetikzlibrary{arrows.meta}');
         }
 
