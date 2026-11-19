@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Fill region regression tests</title>
+<h1>Fill region regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/fill-region.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', async () => {
+    const results = document.getElementById('results');
+    const report = [];
+    try {
+        const win = frame.contentWindow;
+        const doc = win.document;
+        const app = win.app;
+        const regions = () => app.objects.filter(object => object.type === 'region');
+        const straightLines = () => app.objects.filter(object => object.type === 'line');
+        const tool = name => doc.querySelector(`[data-tool="${name}"]`).click();
+
+        function check(condition, message) {
+            if (!condition) throw new Error(message);
+        }
+
+        function click(x, y) {
+            const screen = app.worldToScreen(x, y);
+            const rect = app.canvas.getBoundingClientRect();
+            for (const type of ['mousedown', 'mouseup']) {
+                app.canvas.dispatchEvent(new win.MouseEvent(type, {
+                    bubbles: true, button: 0, clientX: rect.left + screen.x, clientY: rect.top + screen.y
+                }));
+            }
+        }
+
+        function line(start, end) {
+            tool('line');
+            click(...start);
+            click(...end);
+        }
+
+        function paint(x, y) {
+            tool('fill');
+            click(x, y);
+        }
+
+        function property(name, value) {
+            const field = doc.querySelector(`#propertiesPanel [data-prop="${name}"]`);
+            check(field, 'Missing property ' + name);
+            if (field.type === 'checkbox') field.checked = value;
+            else field.value = value;
+            field.dispatchEvent(new win.Event('change', { bubbles: true }));
+        }
+
+        function colorAt(x, y) {
+            const p = app.worldToScreen(x, y);
+            return Array.from(app.ctx.getImageData(Math.round(p.x), Math.round(p.y), 1, 1).data);
+        }
+
+        function tinted(x, y) {
+            const [r, g, b] = colorAt(x, y);
+            return Math.max(r, g, b) - Math.min(r, g, b) > 20;
+        }
+
+        function reset() {
+            app.loadProjectData({ objects: [], viewX: 100, viewY: 350, zoom: 45, customColors: {} });
+            tool('select');
+        }
+
+        function square(min, max) {
+            line([min, min], [max, min]);
+            line([max, min], [max, max]);
+            line([max, max], [min, max]);
+            line([min, max], [min, min]);
+        }
+
+        function shape(name, start, end) {
+            tool(name);
+            click(...start);
+            click(...end);
+            return app.selectedObjects[0];
+        }
+
+        async function savedProject() {
+            let saved;
+            const saveFile = app.saveFile;
+            try {
+                app.saveFile = async blob => { saved = blob; };
+                await app.saveProject();
+            } finally {
+                app.saveFile = saveFile;
+            }
+            return JSON.parse(await saved.text());
+        }
+
+        reset();
+        line([0, 0], [4, 0]);
+        line([4, 0], [0, 4]);
+        const openHistory = app.undoStack.length;
+        paint(1, 1);
+        check(!regions().length && app.undoStack.length === openHistory, 'An open chain accepted a fill');
+        line([0, 4], [0, 0]);
+        paint(3.5, 3.5);
+        check(!regions().length, 'Clicking the unbounded face created a fill');
+        paint(2, 0);
+        check(!regions().length, 'Clicking directly on a shared boundary must not pick a side');
+        paint(1, 1);
+        check(regions().length === 1 && straightLines().length === 3, 'Triangle fill changed its edges');
+        app.undo();
+        check(!regions().length && straightLines().length === 3, 'Undo should remove only the new fill');
+        app.redo();
+        check(regions().length === 1, 'Redo did not restore fill');
+        paint(1, 1);
+        check(regions().length === 1 && app.selectedObjects[0] === regions()[0], 'Repeated fill duplicated the region');
+        property('fillColor', 'red');
+        property('fillOpacity', '0.6');
+        const [r, g, b] = colorAt(0.73, 0.81);
+        check(r > g + 90 && r > b + 90 && g > 70, 'Fill color/opacity did not reach canvas');
+        check(!tinted(2.75, 2.65), 'Fill extends outside triangle');
+        report.push('PASS  Open and closed chains, editable paint, undo and redo');
+
+        const file = await savedProject();
+        reset();
+        app.loadProjectData(file);
+        check(regions().length === 1 && tinted(0.73, 0.81), 'Saved fill could not be reopened');
+        const tikz = app.generateTikZ();
+        const fillIndex = tikz.search(/\\(?:fill\b|path\[[^\]]*fill)/);
+        check(fillIndex >= 0 && fillIndex < tikz.indexOf('\\draw'), 'TikZ fill should precede its edges');
+        check(tikz.includes('red') && tikz.includes('0.6'), 'TikZ lost fill style');
+        tool('select');
+        click(4, 0);
+        check(app.selectedObjects[0]?.type === 'coord', 'Could not select the original boundary point');
+        property('name', 'RightVertex');
+        property('x', '2');
+        check(!tinted(2.35, 0.85) && tinted(0.73, 0.81), 'Fill did not follow its renamed, edited boundary');
+        click(1, 0);
+        check(app.selectedObjects[0]?.type === 'line', 'Fill prevented selecting a boundary line');
+        click(0.73, 0.81);
+        check(app.selectedObjects[0] === regions()[0], 'Select tool did not select the painted interior');
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+        check(!regions().length && straightLines().length === 3 && !tinted(0.73, 0.81),
+            'Deleting just the paint should preserve its three edges');
+        report.push('PASS  JSON round trip, TikZ layer order, editing boundary coordinates');
+
+        reset();
+        square(0, 4);
+        line([2, 0], [2, 4]);
+        line([0, 2], [4, 2]);
+        paint(1, 1);
+        check(regions().length === 1 && tinted(0.73, 0.81), 'Crossing did not bound a face');
+        check(!tinted(2.73, 0.81) && !tinted(0.73, 2.81), 'Fill leaked across a divider');
+        paint(3, 1);
+        check(regions().length === 2 && tinted(2.73, 0.81), 'Adjacent face could not be independently filled');
+        report.push('PASS  Adjacent faces, T-junctions and crossing segments');
+
+        reset();
+        square(0, 5);
+        square(1, 4);
+        paint(0.5, 0.5);
+        check(tinted(0.73, 0.81) && !tinted(2.23, 2.31), 'Outer fill leaked into nested loop');
+        paint(2, 2);
+        check(regions().length === 2 && tinted(2.23, 2.31), 'Nested face could not be filled independently');
+        report.push('PASS  Nested boundaries and holes');
+
+        reset();
+        shape('circle', [2, 2], [4, 2]);
+        const rect = shape('rect', [1, 1], [3, 3]);
+        rect.rotation = 45;
+        app.render();
+        paint(2, 3.7);
+        check(regions().length === 1 && tinted(3.15, 3.15) && !tinted(2.05, 3.15) && !tinted(0.2, 0.3),
+            'Circle fill did not respect the rotated rectangular hole');
+        paint(2, 2);
+        property('fillColor', 'red');
+        const [rr, , rb] = colorAt(2.05, 3.15);
+        check(regions().length === 2 && rr > rb + 40, 'Rotated rectangle did not fill independently');
+        report.push('PASS  Circle and rotated rectangular hole');
+
+        reset();
+        tool('point');
+        click(5, 5);
+        const focus = app.selectedObjects[0].name;
+        shape('circle', [1, 1], [4, 1]);
+        property('center2', focus);
+        paint(3.2, 3.2);
+        check(regions().length === 1 && tinted(4.75, 4.75) && !tinted(1.55, 4.45),
+            'Rotated ellipse was filled on the wrong axis');
+        report.push('PASS  Ellipse defined by two foci');
+
+        reset();
+        shape('bezier', [0, 1], [4, 1]);
+        paint(2, 1.6);
+        check(!regions().length, 'An isolated open curve was closed implicitly');
+        tool('select');
+        click(2, 2.2);
+        property('closed', true);
+        paint(2, 1.6);
+        check(regions().length === 1 && tinted(1.85, 1.65) && !tinted(2.1, 2.55),
+            'Bezier plus its closing chord did not bound the painted area');
+        const closedFile = await savedProject();
+        reset();
+        app.loadProjectData(closedFile);
+        check(app.objects.some(o => o.type === 'bezier' && o.closed) && tinted(1.85, 1.65),
+            'JSON round trip lost the closed Bezier or its fill');
+        check(app.generateTikZ().split('\\draw')[0].includes('controls'), 'Fill export lost its cubic controls');
+        report.push('PASS  Explicitly closed cubic, project round trip and cubic TikZ output');
+
+        reset();
+        shape('bezier', [0, 2], [4, 2]);
+        shape('bezier', [4, 2], [0, 2]);
+        paint(2, 2);
+        check(regions().length === 1 && tinted(2.15, 2.65) && tinted(2.15, 1.35) && !tinted(2.15, 3.6),
+            'Two open curves sharing endpoints did not form a lens');
+        report.push('PASS  Lens between open cubic curves');
+
+        reset();
+        shape('circle', [2, 2], [4, 2]);
+        shape('circle', [4, 2], [6, 2]);
+        paint(3, 2.25);
+        check(regions().length === 1 && tinted(3.15, 2.65) && !tinted(1.45, 2.35) && !tinted(4.55, 2.35),
+            'The lens between two intersecting circles leaked into its neighbors');
+        report.push('PASS  Cell between intersecting circular arcs');
+
+        reset();
+        tool('arc');
+        click(2, 2); click(2, 0); click(2, 4);
+        paint(3, 2.25);
+        check(!regions().length, 'An isolated open arc accepted paint');
+        line([2, 0], [2, 4]);
+        paint(3, 2.25);
+        check(regions().length === 1 && tinted(3.1, 2.35) && !tinted(1.5, 2.35),
+            'Arc and chord did not form a semicircle');
+        report.push('PASS  Open arc joined to a separate line');
+
+        reset();
+        shape('circle', [2, 2], [4, 2]);
+        line([2, -1], [2, 5]);
+        paint(1, 2.5);
+        check(regions().length === 1 && tinted(1.3, 2.35) && !tinted(2.65, 2.35),
+            'Circle and straight divider did not form separate cells');
+        tool('select');
+        click(2, -1);
+        property('x', '3');
+        click(2, 5);
+        property('x', '3');
+        check(tinted(2.65, 2.35) && !tinted(3.45, 2.35),
+            'Painted arc endpoints did not follow both moving intersections');
+        paint(1.5, 2.35);
+        check(regions().length === 1, 'Moving intersections caused a duplicate fill');
+        const dividedFile = await savedProject();
+        reset();
+        app.loadProjectData(dividedFile);
+        check(tinted(2.65, 2.35) && !tinted(3.45, 2.35), 'Edited curved cell was not restored from file');
+        app.removeObject(app.objects.find(o => o.type === 'circle'));
+        check(!regions().length, 'Deleting the circle left a fill with a missing source');
+        app.undo();
+        check(regions().length === 1 && tinted(2.65, 2.35), 'Undo did not restore the curved region and its source');
+        report.push('PASS  Edited curve-line intersections, repeat fill, save/load and deletion undo');
+        results.dataset.status = 'passed';
+    } catch (error) {
+        report.push('FAIL  ' + error.stack);
+        results.dataset.status = 'failed';
+    }
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>

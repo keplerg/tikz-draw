@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LaTeX rendering regression tests</title>
+<h1>LaTeX rendering regression tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/latex-rendering.html</code>.</p>
+<pre id="results">Loading editor…</pre>
+<script>
+const results = document.getElementById('results');
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function check(condition, message) {
+    if (!condition) throw new Error(message);
+}
+
+async function until(condition, message) {
+    const deadline = performance.now() + 3000;
+    while (!condition()) {
+        if (performance.now() >= deadline) throw new Error(message);
+        await delay(15);
+    }
+}
+
+function openLabels(app, texts, customColors = {}) {
+    const objects = texts.flatMap((text, i) => [
+        { type: 'TikZCoordinate', id: 'coord_' + i, name: 'A' + i, x: 1 + i, y: 1, showPoint: false },
+        { type: 'TikZLabel', id: 'label_' + i, at: 'A' + i, text, position: 'center', color: 'black', fontSize: 'normal' }
+    ]);
+    app.loadProjectData({ objects, customColors, viewX: 50, viewY: 200, zoom: 50 });
+}
+
+function greenGlyph(canvasPoint, app) {
+    const pixel = app.ctx.getImageData(canvasPoint.x, canvasPoint.y, 1, 1).data;
+    return pixel[0] < 10 && pixel[1] > 245 && pixel[2] < 10;
+}
+
+function insertGlyph(container, color = 'lime') {
+    container.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">' +
+        '<rect width="12" height="12" fill="' + color + '"/></svg>';
+}
+
+async function run() {
+    const response = await fetch('../tikz-draw.html');
+    check(response.ok, 'Could not read the editor');
+    const source = await response.text();
+    // Keep the real loader element and app startup code, with network and startup timing under test control.
+    const remoteScript = /<script\b[^>]*\bsrc="[^"]*mathjax[^"]*"[^>]*>/i;
+    check(remoteScript.test(source), 'MathJax script element missing');
+    const html = source.replace(remoteScript, tag => tag.replace(/\bsrc="[^"]*"/, 'data-math-fixture') +
+        'window.timerCount = 0; const nativeTimeout = window.setTimeout;' +
+        'window.setTimeout = (...args) => { window.timerCount++; return nativeTimeout(...args); };');
+    const report = [];
+
+    async function test(name, scenario, earlyStartup = false) {
+        const frame = document.createElement('iframe');
+        frame.width = '1000';
+        frame.height = '600';
+        frame.title = 'Editor under test';
+        try {
+            const loaded = new Promise(resolve => frame.onload = resolve);
+            frame.srcdoc = earlyStartup ? html.replace('</head>',
+                '<script>MathJax.startup = {promise: Promise.resolve()};' +
+                'MathJax.typesetPromise = ([node]) => window.typesetFixture(node);<\/script></head>') : html;
+            document.body.appendChild(frame);
+            await loaded;
+            const win = frame.contentWindow;
+            const app = win.app;
+            const observed = { renders: 0, fallback: [] };
+            const render = app.render.bind(app);
+            app.render = (...args) => { observed.renders++; return render(...args); };
+            const drawText = app.ctx.fillText.bind(app.ctx);
+            app.ctx.fillText = (text, ...args) => { observed.fallback.push(text); return drawText(text, ...args); };
+
+            function loadMath(typesetPromise, startup = Promise.resolve()) {
+                win.MathJax.startup = { promise: startup };
+                win.MathJax.typesetPromise = typesetPromise;
+                win.document.querySelector('script[data-math-fixture]').dispatchEvent(new win.Event('load'));
+            }
+            await scenario({ app, win, observed, loadMath });
+            report.push('PASS  ' + name);
+        } catch (error) {
+            report.push('FAIL  ' + name + '\n' + error.stack);
+        } finally {
+            frame.remove();
+        }
+    }
+
+    await test('Offline labels remain readable while the editor is idle', async ({ win, app, observed }) => {
+        win.document.querySelector('script[data-math-fixture]').dispatchEvent(new win.Event('error'));
+        openLabels(app, ['$offline$']);
+        check(observed.fallback.includes('$offline$'), 'The canvas did not draw fallback text');
+        await delay(100);
+        const renders = observed.renders;
+        const timers = win.timerCount;
+        await delay(500);
+        check(observed.renders === renders, 'Offline labels kept repainting the canvas');
+        check(win.timerCount === timers, 'The editor kept polling for an offline CDN');
+    });
+
+    await test('Delayed startup replaces text on the canvas and typesets a shared label once', async ({ app, observed, loadMath }) => {
+        let finishStartup, finishTypeset;
+        const startup = new Promise(resolve => { finishStartup = resolve; });
+        const typeset = new Promise(resolve => { finishTypeset = resolve; });
+        let calls = 0;
+        openLabels(app, ['$x$', '$x$']);
+        loadMath(async ([container]) => {
+            calls++;
+            await typeset;
+            insertGlyph(container);
+        }, startup);
+        app.render();
+        await delay(30);
+        check(calls === 0 && observed.fallback.includes('$x$'), 'Typesetting started before startup finished');
+        finishStartup();
+        await until(() => calls > 0, 'A label queued during startup was never typeset');
+        for (let i = 0; i < 4; i++) app.render();
+        finishTypeset();
+        await until(() => [1, 2].every(x => greenGlyph(app.worldToScreen(x, 1), app)),
+            'Both labels should show the green SVG glyph without another user action');
+        await delay(100);
+        check(calls === 1, 'Repeated canvas renders typeset the same label ' + calls + ' times');
+    });
+
+    await test('Plain text, a missing SVG and a failed formula settle on the text fallback', async ({ app, observed, loadMath }) => {
+        const attempts = new Map();
+        const usedContainers = [];
+        loadMath(async ([container]) => {
+            const text = container.textContent;
+            attempts.set(text, (attempts.get(text) || 0) + 1);
+            usedContainers.push(container);
+            if (text === '$error$') throw new Error('Simulated typesetting failure');
+        });
+        const texts = ['plain label', '$empty$', '$error$'];
+        openLabels(app, texts);
+        await until(() => attempts.has('$error$') && attempts.has('$empty$'), 'Test formulas were never processed');
+        await delay(100);
+        const renders = observed.renders;
+        await delay(200);
+        check(observed.renders === renders, 'Fallback labels caused idle redraws');
+        app.render();
+        await delay(50);
+        check(texts.every(text => observed.fallback.includes(text)), 'At least one fallback label was missing');
+        check([...attempts.values()].every(count => count === 1), 'Text without a rendered formula was retried');
+        check(usedContainers.every(node => !node.isConnected), 'Typesetting left a temporary container in the document');
+    });
+
+    await test('Switching projects during typesetting renders the current project palette', async ({ win, app }) => {
+        let releaseOld, releaseNew;
+        const oldJob = new Promise(resolve => { releaseOld = resolve; });
+        const newJob = new Promise(resolve => { releaseNew = resolve; });
+        const colors = [];
+        win.typesetFixture = async container => {
+            const color = container.textContent.match(/#[0-9a-f]{6}/i)?.[0];
+            colors.push(color);
+            await (colors.length === 1 ? oldJob : newJob);
+            insertGlyph(container, color);
+        };
+        const label = '$\\color{ink}{x}$';
+        openLabels(app, [label], { ink: '#ff0000' });
+        await until(() => colors.length > 0, 'An already loaded MathJax did not render');
+        openLabels(app, [label], { ink: '#00ff00' });
+        releaseOld();
+        await until(() => colors.length > 1, 'The previous project swallowed the new formula request');
+        check(colors[0] === '#ff0000' && colors[1] === '#00ff00', 'Typesetting used the wrong palette');
+        const point = app.worldToScreen(1, 1);
+        app.render();
+        const pixel = app.ctx.getImageData(point.x, point.y, 1, 1).data;
+        check(!(pixel[0] > 245 && pixel[1] < 10 && pixel[2] < 10), 'A stale red glyph was painted');
+        releaseNew();
+        await until(() => greenGlyph(point, app), 'The new project did not display its green glyph');
+    }, true);
+
+    results.textContent = report.join('\n');
+    results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
+}
+
+run().catch(error => {
+    results.textContent = error.stack;
+    results.dataset.status = 'failed';
+});
+</script>
+</html>

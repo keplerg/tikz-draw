@@ -25,6 +25,7 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 - **Undo/Redo**: Full undo/redo support with 50-state history (Ctrl+Z/Ctrl+Y)
 - **Arrow Key Nudging**: Precise positioning with 0.1 unit (normal) or 0.01 unit (Shift) increments - works with all object types
 - **Clean TikZ Export**: Generates well-formatted, readable TikZ code
+- **Fill enclosed areas**: Click inside circles, ellipses, rectangles or areas enclosed by paths, lines, arcs and Bézier curves.
 - **Project Save/Load**: Save your work as JSON and continue later
 - **Customizable Styling**: Colors, line styles, thicknesses, arrow types, patterns, and more
 - **Snap to Grid**: Configurable grid snapping for precise positioning (0.25 units)
@@ -55,6 +56,7 @@ start tikz-draw.html      # Windows
 | Rotate | O | Rotate objects around their center (5° snap, Ctrl for 1° snap) |
 | Point | P | Create coordinate points |
 | Line | L | Draw line segments between points |
+| Fill | F | Color a closed shape or an area enclosed by lines and curves |
 | Vector | A | Draw arrows/vectors between points |
 | Circle | C | Draw circles (click center, drag radius) |
 | Arc | R | Draw circular arcs |
@@ -88,6 +90,14 @@ start tikz-draw.html      # Windows
 
 9. **Export TikZ**: Click "Export TikZ" (or Ctrl+E) to generate LaTeX code you can copy into your document.
 
+## Filling an Area
+
+Press **F** (or choose **Fill**) and click inside a circle, ellipse, rectangle, closed path, or an area enclosed by several objects. Use **Fill color** and **Opacity** in the properties panel to change the default blue shading and 30% opacity.
+
+A straight line across a circle creates two areas that can be shaded separately. Overlapping circles create a lens, and an enclosed loop inside another shape leaves a hole. You can also join Bézier curves or arcs to other curves or lines. To fill a single open Bézier, select it, check **Close curve with a line**, then click between the curve and the closing line with **Fill**.
+
+Click an existing area with **Fill** to edit its shading. Moving a boundary or a Bézier control point updates its fill. Delete the fill to keep just the outline. Project files and TikZ exports preserve curved boundaries and holes.
+
 ## Navigation
 
 - **Pan**: Click and drag on empty canvas, or use arrow keys
@@ -116,7 +126,7 @@ Embed images (PNG, JPG, GIF) into your TikZ diagrams:
 3. Select an image file from your computer
 4. Adjust properties: position, scale, rotation, opacity
 
-Images are embedded as base64 data in the exported TikZ code using the `\includegraphics` command. Images maintain their aspect ratio and can be rotated and scaled independently.
+Project files embed the image data. If you open another project, Undo restores the previous drawing with its images, and Redo brings back the project you opened. Exported TikZ references each image by filename with `\includegraphics`. Keep the image files alongside the exported `.tex` file when compiling. Images maintain their aspect ratio and can be rotated and scaled independently.
 
 ## Embedded Labels
 
@@ -163,7 +173,7 @@ Patterns use the fill color for pattern color. Export automatically includes `\u
 
 ## LaTeX Labels
 
-Labels support full LaTeX math notation via MathJax:
+Labels show their source text while MathJax loads. When a formula is ready, the canvas and the label preview update automatically. If MathJax is unavailable, you can keep editing the source text and export it to TikZ.
 
 ```latex
 $\alpha$                           % Greek letters
@@ -219,6 +229,7 @@ The exported TikZ code is clean and well-organized:
 | O | Rotate tool |
 | P | Point tool |
 | L | Line tool |
+| F | Fill an enclosed area |
 | A | Vector (Arrow) tool |
 | C | Circle tool |
 | R | Arc tool |
@@ -292,7 +303,8 @@ Button states update automatically based on current selection and clipboard stat
 
 Save your work as JSON files to continue editing later:
 
-- **Save**: Click "Save" to download a `.json` file
+- **Save**: Click "Save" and choose a location for the `.json` file. The editor clears the unsaved-changes reminder when the file has been written. Any edits made during the save still need saving.
+- Browsers that use a download link cannot report whether the file reached disk. Check the downloaded JSON before closing the tab. The reminder stays active for modified drawings in these browsers.
 - **Open**: Click "Open" to load a previously saved project
 
 Project files preserve all objects, positions, styles, and view settings.
@@ -353,7 +365,7 @@ Works in modern browsers with ES6+ support:
 - Safari
 - Edge
 
-Requires JavaScript enabled and internet connection (for MathJax CDN).
+Requires JavaScript. Rendering formulas in the browser uses MathJax from a CDN.
 
 ## License
 
