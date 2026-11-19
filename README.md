@@ -292,7 +292,8 @@ Button states update automatically based on current selection and clipboard stat
 
 Save your work as JSON files to continue editing later:
 
-- **Save**: Click "Save" to download a `.json` file
+- **Save**: Click "Save" and choose a location for the `.json` file. The editor clears the unsaved-changes reminder when the file has been written. Any edits made during the save still need saving.
+- Browsers that use a download link cannot report whether the file reached disk. Check the downloaded JSON before closing the tab. The reminder stays active for modified drawings in these browsers.
 - **Open**: Click "Open" to load a previously saved project
 
 Project files preserve all objects, positions, styles, and view settings.
