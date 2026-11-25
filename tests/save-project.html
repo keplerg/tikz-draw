@@ -146,9 +146,10 @@ frame.addEventListener('load', async () => {
         await app.saveProject();
         check(download?.name === 'fallback.json', 'Download filename lost its JSON extension');
         check((await download.data).objects.length === 1, 'Download did not contain the current project');
-        checkDirty(true, 'An unconfirmed download cleared the leave warning');
-        check(doc.querySelector('.toast.info')?.textContent, 'An initiated download did not show feedback');
-        report.push('PASS  Download fallback hands off JSON and retains the warning until a write is confirmed');
+        checkDirty(false, 'A completed download should clear the leave warning');
+        check(app.currentFilename === 'fallback.json', 'Download did not remember its filename');
+        check(doc.querySelector('.toast.success')?.textContent.includes('downloaded'), 'A download did not show feedback');
+        report.push('PASS  Download fallback hands off JSON and treats the download as saved');
 
         reset();
         app.handlePointClick({ x: 0, y: 0 });

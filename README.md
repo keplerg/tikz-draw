@@ -3,8 +3,8 @@
 A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes, add LaTeX labels, and export clean TikZ code for use in LaTeX documents.
 
 <p align="center">
-  <a href="https://www.xumin.net/c/tikz-draw">
-    <img src="https://img.shields.io/badge/🚀_Try_the_Live_Demo-tikz--draw-blue?style=for-the-badge&labelColor=2d3748&color=4299e1" alt="Try the Live Demo" height="50">
+  <a href="https://tikz-draw.online">
+    <img src="https://img.shields.io/badge/🚀_Try_the_Live_Demo-tikz--draw.online-blue?style=for-the-badge&labelColor=2d3748&color=4299e1" alt="Try the Live Demo" height="50">
   </a>
 </p>
 
@@ -34,7 +34,7 @@ A browser-based visual editor for creating TikZ diagrams. Draw geometric shapes,
 
 ## Getting Started
 
-Simply open `tikz-draw.html` in a modern web browser. No installation or server required.
+Simply open `tikz-draw.html` in a modern web browser. No installation or server required. [Try the live demo](https://tikz-draw.online)
 
 ```bash
 # Clone the repository
@@ -92,11 +92,11 @@ start tikz-draw.html      # Windows
 
 ## Filling an Area
 
-Press **F** (or choose **Fill**) and click inside a circle, ellipse, rectangle, closed path, or an area enclosed by several objects. Use **Fill color** and **Opacity** in the properties panel to change the default blue shading and 30% opacity.
+Press **F** (or choose **Fill**) and click inside a circle, ellipse, rectangle, closed path, or an area enclosed by several objects. Use **Fill**, **Opacity** and **Pattern** in the properties panel to change the default blue shading at 30% opacity. **Color**, **Thickness** and **Style** add an outline around the area (none by default).
 
 A straight line across a circle creates two areas that can be shaded separately. Overlapping circles create a lens, and an enclosed loop inside another shape leaves a hole. You can also join Bézier curves or arcs to other curves or lines. To fill a single open Bézier, select it, check **Close curve with a line**, then click between the curve and the closing line with **Fill**.
 
-Click an existing area with **Fill** to edit its shading. Moving a boundary or a Bézier control point updates its fill. Delete the fill to keep just the outline. Project files and TikZ exports preserve curved boundaries and holes.
+Click an existing area with **Fill** to edit its shading. Moving a boundary or a Bézier control point updates its fill: it stays the same area (for example, the overlap of two circles) wherever the shapes move, and hides while that area doesn't exist. Delete the fill to keep just the outline. Project files and TikZ exports preserve curved boundaries and holes.
 
 ## Navigation
 
@@ -312,8 +312,8 @@ Button states update automatically based on current selection and clipboard stat
 
 Save your work as JSON files to continue editing later:
 
-- **Save**: Click "Save" and choose a location for the `.json` file. The editor clears the unsaved-changes reminder when the file has been written. Any edits made during the save still need saving.
-- Browsers that use a download link cannot report whether the file reached disk. Check the downloaded JSON before closing the tab. The reminder stays active for modified drawings in these browsers.
+- **Save**: Click "Save" and choose a location for the `.json` file. The editor clears the unsaved-changes reminder once the file is saved. Any edits made during the save still need saving.
+- Browsers without a save dialog (such as Firefox and Safari) download the file instead. The editor assumes the download succeeded and clears the reminder.
 - **Open**: Click "Open" to load a previously saved project
 
 Project files preserve all objects, positions, styles, and view settings.

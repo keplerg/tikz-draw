@@ -113,7 +113,7 @@ frame.addEventListener('load', async () => {
         check(regions().length === 1, 'Redo did not restore fill');
         paint(1, 1);
         check(regions().length === 1 && app.selectedObjects[0] === regions()[0], 'Repeated fill duplicated the region');
-        property('fillColor', 'red');
+        property('fill', 'red');
         property('fillOpacity', '0.6');
         const [r, g, b] = colorAt(0.73, 0.81);
         check(r > g + 90 && r > b + 90 && g > 70, 'Fill color/opacity did not reach canvas');
@@ -172,7 +172,7 @@ frame.addEventListener('load', async () => {
         check(regions().length === 1 && tinted(3.15, 3.15) && !tinted(2.05, 3.15) && !tinted(0.2, 0.3),
             'Circle fill did not respect the rotated rectangular hole');
         paint(2, 2);
-        property('fillColor', 'red');
+        property('fill', 'red');
         const [rr, , rb] = colorAt(2.05, 3.15);
         check(regions().length === 2 && rr > rb + 40, 'Rotated rectangle did not fill independently');
         report.push('PASS  Circle and rotated rectangular hole');
@@ -257,6 +257,112 @@ frame.addEventListener('load', async () => {
         app.undo();
         check(regions().length === 1 && tinted(2.65, 2.35), 'Undo did not restore the curved region and its source');
         report.push('PASS  Edited curve-line intersections, repeat fill, save/load and deletion undo');
+
+        // Moving overlapping circles keeps the same cell: the lens stays the lens and a
+        // crescent stays a crescent, wherever the second circle goes.
+        for (const [clickX, label] of [[1, 'lens'], [-1.5, 'crescent']]) {
+            reset();
+            shape('circle', [0, 0], [2, 0]);
+            shape('circle', [2, 0], [4, 0]);
+            paint(clickX, 0.1);
+            check(regions().length === 1, 'Could not fill the ' + label);
+            // The circle tool gives each circle two coincident foci; move both.
+            const second = app.objects.filter(o => o.type === 'circle')[1];
+            const foci = [second.center, second.center2].map(name => app.getCoordByName(name));
+            const moving = {
+                get x() { return foci[0].x; }, set x(v) { foci.forEach(f => f.x = v); },
+                get y() { return foci[0].y; }, set y(v) { foci.forEach(f => f.y = v); }
+            };
+            for (let step = 0; step <= 36; step++) {
+                const angle = step * 10 * Math.PI / 180;
+                moving.x = 2.2 * Math.cos(angle);
+                moving.y = 2.2 * Math.sin(angle);
+                app.render();
+                const region = regions()[0];
+                const overlap = app.regionContains(region, moving.x / 2, moving.y / 2);
+                const farSide = app.regionContains(region, -1.8 * Math.cos(angle), -1.8 * Math.sin(angle));
+                check(label === 'lens' ? overlap && !farSide : !overlap && farSide,
+                    `The ${label} changed shape after moving a circle to ${step * 10} degrees`);
+            }
+            moving.x = 8;
+            moving.y = 0;
+            app.render();
+            const separated = app.getRegionRings(regions()[0]).length;
+            check(label === 'lens' ? separated === 0 : separated === 1,
+                `Separating the circles left the wrong ${label}`);
+            moving.x = 2;
+            app.render();
+            check(app.getRegionRings(regions()[0]).length === 1, `The ${label} did not return when the circles overlapped again`);
+        }
+        report.push('PASS  Lens and crescent keep their shape while a circle moves around and away');
+
+        // A third circle that temporarily covers the whole overlap leaves the outline but
+        // must still define the fill when it moves back.
+        reset();
+        shape('circle', [0, 0], [2, 0]);
+        shape('circle', [2, 0], [4, 0]);
+        shape('circle', [1, 2.6], [4, 2.6]);
+        paint(1, 1.2);
+        check(regions().length === 1, 'Could not fill the overlap of three circles');
+        const third = app.objects.filter(o => o.type === 'circle')[2];
+        const thirdFoci = [third.center, third.center2].map(name => app.getCoordByName(name));
+        const moveThird = (x, y) => { thirdFoci.forEach(f => { f.x = x; f.y = y; }); app.render(); };
+        const tripleOnly = () => app.regionContains(regions()[0], 1, 1.2) && !app.regionContains(regions()[0], 1, -1.2);
+        check(tripleOnly(), 'Initial three-circle fill is wrong');
+        moveThird(1, 0);
+        check(app.regionContains(regions()[0], 1, 1.2) && app.regionContains(regions()[0], 1, -1.2),
+            'Covering circle: the fill should be the whole lens');
+        const coveredFile = await savedProject();
+        moveThird(1, 2.6);
+        check(tripleOnly(), 'Moving the covering circle back did not restore the three-way overlap');
+        reset();
+        app.loadProjectData(coveredFile);
+        const reloadedThird = app.objects.filter(o => o.type === 'circle')[2];
+        [reloadedThird.center, reloadedThird.center2].forEach(name => {
+            const f = app.getCoordByName(name); f.x = 1; f.y = 2.6;
+        });
+        app.render();
+        check(tripleOnly(), 'After reload, the covering circle no longer defined the fill');
+        app.removeObject(reloadedThird);
+        check(!regions().length, 'Deleting a defining circle that was off the outline left its fill');
+        report.push('PASS  A circle covering the whole overlap still defines the fill when moved back');
+
+        // A fill has the same Color, Thickness, Style, Fill, Opacity and Pattern fields as other shapes.
+        reset();
+        shape('circle', [2, 2], [4, 2]);
+        paint(2, 2);
+        tool('select');
+        app.selectedObjects = [regions()[0]];
+        app.updatePropertiesPanel();
+        for (const name of ['color', 'thickness', 'lineStyle', 'fill', 'fillOpacity', 'pattern']) {
+            check(doc.querySelector(`#propertiesPanel [data-prop="${name}"]`), 'Fill panel is missing ' + name);
+        }
+        check(doc.querySelector('#propertiesPanel [data-prop="color"]').value === 'none', 'A new fill should have no outline');
+        check(/^\s*\\fill\[fill=blue, fill opacity=0.3\]/m.test(app.generateTikZ()), 'Default fill export changed');
+        property('color', 'red');
+        property('lineStyle', 'dashed');
+        property('fill', 'green');
+        property('fillOpacity', '0.5');
+        property('pattern', 'dots');
+        const outlined = app.generateTikZ().split('\n').find(l => l.includes('pattern=dots')) || '';
+        check(/^\s*\\filldraw\[red, dashed, pattern color=green, fill opacity=0.5, pattern=dots\]/.test(outlined),
+            'Fill outline and pattern export is wrong: ' + outlined);
+        check(app.generateTikZ().includes('\\usetikzlibrary{patterns}'), 'A patterned fill did not mention the patterns library');
+        const styledFile = await savedProject();
+        reset();
+        app.loadProjectData(styledFile);
+        const restored = regions()[0];
+        check(restored.fill === 'green' && restored.pattern === 'dots' && restored.color === 'red' &&
+            restored.lineStyle === 'dashed' && restored.fillOpacity === 0.5, 'Fill styling was lost on reload');
+        const legacy = { ...styledFile, objects: styledFile.objects.map(o => {
+            if (o.type !== 'TikZRegion') return o;
+            const { fill, pattern, color, thickness, lineStyle, ...old } = o;
+            return { ...old, fillColor: 'orange' };
+        }) };
+        app.loadProjectData(legacy);
+        check(regions()[0].fill === 'orange' && regions()[0].color === 'none' && regions()[0].pattern === 'none',
+            'An older fill (fillColor only) did not load with default styling');
+        report.push('PASS  Fill properties match other shapes, export outline and pattern, and load older files');
         results.dataset.status = 'passed';
     } catch (error) {
         report.push('FAIL  ' + error.stack);

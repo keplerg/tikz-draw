@@ -1517,13 +1517,32 @@ function curvedFillTikZPath(pieces) {
 }
 
 class TikZRegion extends TikZObject {
-    constructor(loops = [], fillColor = 'blue', fillOpacity = 0.3, curveLoops = null) {
+    constructor(loops = [], fill = 'blue', fillOpacity = 0.3, curveLoops = null) {
         super('region');
         this.loops = TikZRegion.copyLoops(loops);
         this.curveLoops = curveLoops ? TikZRegion.copyCurveLoops(curveLoops) : null;
-        this.fillColor = fillColor;
+        // The objects that define a curved fill, and which side of each it lies on. Unlike
+        // the outline, this never shrinks: an object that currently covers the whole area
+        // is not on the outline but still constrains the fill when it moves away again.
+        this.sides = curveLoops ? Object.fromEntries(fillFaceSides(curveLoops)) : null;
+        this.fill = fill;
         this.fillOpacity = Number.isFinite(fillOpacity) ? Math.max(0, Math.min(1, fillOpacity)) : 0.3;
+        this.pattern = 'none';
+        // Optional outline; 'none' leaves the boundary objects to draw it.
+        this.color = 'none';
+        this.thickness = 'thin';
+        this.lineStyle = 'solid';
         this.name = this.id.replace('region_', 'Fill');
+    }
+
+    get outlined() {
+        return this.color && this.color !== 'none';
+    }
+
+    // Ids of every object a curved fill depends on.
+    get sourceIds() {
+        if (this.sides) return Object.keys(this.sides);
+        return [...new Set((this.curveLoops || []).flat().map(run => run.objectId))];
     }
 
     static copyLoops(loops) {
@@ -1537,10 +1556,17 @@ class TikZRegion extends TikZObject {
     }
 
     toTikZ(rings) {
-        if (!rings.length || this.fillColor === 'none') return '';
-        const options = [`fill=${this.fillColor}`];
-        if (this.fillOpacity !== 1) options.push(`fill opacity=${this.fillOpacity}`);
+        const filled = this.fill && this.fill !== 'none';
+        if (!rings.length || (!filled && !this.outlined)) return '';
+        const options = this.outlined ? strokeOptions(this) : [];
+        if (filled) {
+            const patterned = this.pattern && this.pattern !== 'none';
+            options.push(patterned ? `pattern color=${this.fill}` : `fill=${this.fill}`);
+            if (this.fillOpacity !== 1) options.push(`fill opacity=${this.fillOpacity}`);
+            if (patterned) options.push(`pattern=${this.pattern}`);
+        }
         if (rings.length > 1) options.push('even odd rule');
+        const cmd = this.outlined ? (filled ? '\\filldraw' : '\\draw') : '\\fill';
         const paths = this.curveLoops ? rings.map(curvedFillTikZPath) : this.loops.map((loop, i) => {
             const vertices = loop.map((vertex, j) => {
                 if (typeof vertex === 'string') return `(${vertex})`;
@@ -1549,7 +1575,7 @@ class TikZRegion extends TikZObject {
             });
             return vertices.join(' -- ') + ' -- cycle';
         });
-        return `  \\fill[${options.join(', ')}] ${paths.join(' ')};`;
+        return `  ${cmd}${options.length ? `[${options.join(', ')}]` : ''} ${paths.join(' ')};`;
     }
 }
 
@@ -2104,7 +2130,9 @@ function fillPointParameter(chord, point) {
     return null;
 }
 
-function findSegmentFace(objects, getCoordByName, x, y) {
+// Split the plane by the boundaries of `objects` into faces. Returns null when `click`
+// lies on a boundary. `describe(face)` gives the saved form of a face, including holes.
+function buildFillArrangement(objects, getCoordByName, click = null) {
     // Merge coincident endpoints and intersections, including independently named points.
     const vertices = [], buckets = new Map();
     function vertexAt(point, ref) {
@@ -2128,7 +2156,7 @@ function findSegmentFace(objects, getCoordByName, x, y) {
         return vertex;
     }
 
-    const segments = [], click = { x, y };
+    const segments = [];
     const tolerance = 0.001;
     for (const obj of objects) {
         for (const primitive of fillPrimitivesFor(obj, getCoordByName)) {
@@ -2145,7 +2173,8 @@ function findSegmentFace(objects, getCoordByName, x, y) {
                     left: Math.min(a.x, b.x) - padding, right: Math.max(a.x, b.x) + padding,
                     bottom: Math.min(a.y, b.y) - padding, top: Math.max(a.y, b.y) + padding
                 };
-                if (x >= chord.left && x <= chord.right && y >= chord.bottom && y <= chord.top &&
+                if (click && click.x >= chord.left && click.x <= chord.right &&
+                    click.y >= chord.bottom && click.y <= chord.top &&
                     fillPointParameter(chord, click) !== null) return null;
                 segments.push(chord);
             }
@@ -2273,12 +2302,41 @@ function findSegmentFace(objects, getCoordByName, x, y) {
         }
         return best;
     }
-    const face = containingFace({ x, y });
-    if (!face) return null;
-    const rings = [face.ring, ...face.holes];
-    for (const exterior of exteriors) {
-        if (containingFace(exterior[0]) === face) rings.push(exterior);
+    // A point strictly inside a face: just left of the middle of one of its outer edges.
+    function interiorPoint(face) {
+        const ring = face.ring;
+        const order = ring.map((a, i) => i).sort((i, j) => {
+            const len = k => { const a = ring[k], b = ring[(k + 1) % ring.length]; return Math.hypot(b.x - a.x, b.y - a.y); };
+            return len(j) - len(i);
+        });
+        for (const i of order) {
+            const a = ring[i], b = ring[(i + 1) % ring.length];
+            const length = Math.hypot(b.x - a.x, b.y - a.y);
+            if (!length) continue;
+            const edge = a.edges.get(b)[0];
+            const forward = edge.start === a;
+            const mid = fillPrimitivePoint(edge.primitive, (edge.t0 + edge.t1) / 2);
+            const d = fillPrimitiveDerivative(edge.primitive, (edge.t0 + edge.t1) / 2);
+            const speed = Math.hypot(d.x, d.y) * (forward ? 1 : -1);
+            if (!speed) continue;
+            const step = Math.min(1e-3, length * 0.25);
+            const p = { x: mid.x - d.y / speed * step, y: mid.y + d.x / speed * step };
+            if (insideRing(face.ring, p) && !face.holes.some(hole => insideRing(hole, p))) return p;
+        }
+        return null;
     }
+
+    function describe(face) {
+        const rings = [face.ring, ...face.holes];
+        for (const exterior of exteriors) {
+            if (containingFace(exterior[0]) === face) rings.push(exterior);
+        }
+        return describeRings(rings);
+    }
+
+    return { faces, containingFace, interiorPoint, describe };
+
+    function describeRings(rings) {
     const sources = new Set();
     let legacy = rings.every(ring => ring.every(v => v.ref != null));
     function contiguous(a, b) {
@@ -2303,7 +2361,102 @@ function findSegmentFace(objects, getCoordByName, x, y) {
         return runs;
     });
     const loops = legacy ? rings.map(ring => ring.map(v => v.ref)) : [];
-    return { loops, curveLoops: legacy ? null : curveLoops, boundarySegments: [...sources] };
+    return { loops, curveLoops, legacy, boundarySegments: [...sources] };
+    }
+}
+
+function findSegmentFace(objects, getCoordByName, x, y) {
+    const arrangement = buildFillArrangement(objects, getCoordByName, { x, y });
+    const face = arrangement?.containingFace({ x, y });
+    if (!face) return null;
+    const { loops, curveLoops, legacy, boundarySegments } = arrangement.describe(face);
+    return { loops, curveLoops: legacy ? null : curveLoops, boundarySegments };
+}
+
+// Which side of each boundary object a face lies on. Walking a face's outline with
+// the face on the left, '+' means along the object's own direction and '-' against it.
+// An object that bounds the face from both sides (a dangling edge) gets '±'.
+function fillFaceSides(curveLoops) {
+    const sides = new Map();
+    for (const ring of curveLoops) {
+        for (const run of ring) {
+            const side = run.t1 > run.t0 ? '+' : '-';
+            const known = sides.get(run.objectId);
+            sides.set(run.objectId, known && known !== side ? '±' : side);
+        }
+    }
+    return sides;
+}
+
+// For a closed object: the side token ('+' or '-') that means "inside", from its orientation.
+function fillInsideSide(obj, getCoordByName) {
+    const closed = obj instanceof TikZCircle || obj instanceof TikZRectangle ||
+        ((obj instanceof TikZPath || obj instanceof TikZBezier) && obj.closed);
+    if (!closed) return null;
+    const points = fillPrimitivesFor(obj, getCoordByName).flatMap(p => fillPrimitiveSamples(p, 0.01).slice(0, -1));
+    if (points.length < 3) return null;
+    let twiceArea = 0;
+    for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        twiceArea += a.x * b.y - b.x * a.y;
+    }
+    return { side: twiceArea > 0 ? '+' : '-', points };
+}
+
+// Re-find a saved curved fill after its boundary objects move. The fill keeps the
+// face formed by its own sources that lies on the same side of each of them; among
+// several such faces, the one nearest the previous outline wins.
+function resolveFillFace(curveLoops, sides, sources, getCoordByName) {
+    const arrangement = buildFillArrangement(sources, getCoordByName);
+    if (!arrangement || !arrangement.faces.length) return null;
+    const wanted = new Map(Object.entries(sides));
+    const closedSources = new Map();
+    for (const obj of sources) {
+        const inside = fillInsideSide(obj, getCoordByName);
+        if (inside) closedSources.set(obj.id, inside);
+    }
+
+    // Where the fill was: the saved outline evaluated on the current geometry.
+    const byId = new Map(sources.map(obj => [obj.id, obj]));
+    const anchorPoints = curveLoops.flat().map(run => {
+        const primitive = fillPrimitivesFor(byId.get(run.objectId), getCoordByName)[run.part];
+        return primitive && fillPrimitivePoint(primitive, (run.t0 + run.t1) / 2);
+    }).filter(Boolean);
+    const anchor = anchorPoints.length ? {
+        x: anchorPoints.reduce((s, p) => s + p.x, 0) / anchorPoints.length,
+        y: anchorPoints.reduce((s, p) => s + p.y, 0) / anchorPoints.length
+    } : null;
+
+    let best = null;
+    for (const face of arrangement.faces) {
+        const described = arrangement.describe(face);
+        const sides = fillFaceSides(described.curveLoops);
+        let matches = true, point;
+        for (const [id, side] of wanted) {
+            if (side === '±') continue;
+            const actual = sides.get(id);
+            if (actual) {
+                if (actual !== '±' && actual !== side) { matches = false; break; }
+                continue;
+            }
+            // Not on this face's outline: a closed source must still enclose (or exclude) it.
+            const closed = closedSources.get(id);
+            if (!closed) continue;
+            point ??= arrangement.interiorPoint(face);
+            if (!point) { matches = false; break; }
+            const inside = pointInFaceLoop(closed.points, point.x, point.y);
+            if (inside !== (side === closed.side)) { matches = false; break; }
+        }
+        if (!matches) continue;
+        const ring = face.ring;
+        const centre = {
+            x: ring.reduce((s, p) => s + p.x, 0) / ring.length,
+            y: ring.reduce((s, p) => s + p.y, 0) / ring.length
+        };
+        const distance = anchor ? Math.hypot(centre.x - anchor.x, centre.y - anchor.y) : 0;
+        if (!best || distance < best.distance) best = { distance, curveLoops: described.curveLoops };
+    }
+    return best ? best.curveLoops : null;
 }
 
 // Default PGF arrows.meta outlines, rendered with a 0.8 pt shaft using dvisvgm.
@@ -2929,7 +3082,7 @@ class TikZDrawApp {
                 }
             }
             const dependentFills = new Set(this.objects.filter(item => item instanceof TikZRegion && (
-                item.curveLoops?.some(ring => ring.some(run => removedBoundaries.has(run.objectId))) ||
+                (item.curveLoops && item.sourceIds.some(id => removedBoundaries.has(id))) ||
                 (obj instanceof TikZCoordinate && this.getObjectCoordinates(item).includes(obj.name))
             )));
             if (dependentFills.size) {
@@ -4625,7 +4778,7 @@ class TikZDrawApp {
 
     paintedInterior(source, x, y) {
         return this.objects.findLast(obj => obj instanceof TikZRegion &&
-            obj.curveLoops?.some(ring => ring.some(run => run.objectId === source.id)) &&
+            obj.curveLoops && obj.sourceIds.includes(source.id) &&
             this.regionContains(obj, x, y)) || source;
     }
 
@@ -4633,9 +4786,7 @@ class TikZDrawApp {
     withFillBoundaries(objects) {
         const ids = new Set();
         for (const obj of objects) {
-            for (const ring of obj.curveLoops || []) {
-                for (const run of ring) ids.add(run.objectId);
-            }
+            if (obj.curveLoops) obj.sourceIds.forEach(id => ids.add(id));
         }
         if (!ids.size) return objects;
         const selected = new Set(objects);
@@ -5016,12 +5167,24 @@ class TikZDrawApp {
             this.drawRectangle(obj);
         }
         else if (obj instanceof TikZRegion) {
-            if (obj.fillColor === 'none') return;
+            const filled = obj.fill && obj.fill !== 'none';
+            if (!filled && !obj.outlined) return;
             ctx.save();
             this.traceRegion(obj);
-            ctx.fillStyle = this.getColor(obj.fillColor);
-            ctx.globalAlpha = obj.fillOpacity;
-            ctx.fill('evenodd');
+            if (filled) {
+                const color = this.getColor(obj.fill);
+                const patterned = obj.pattern && obj.pattern !== 'none';
+                ctx.fillStyle = (patterned && this.createCanvasPattern(obj.pattern, color)) || color;
+                ctx.globalAlpha = obj.fillOpacity;
+                ctx.fill('evenodd');
+                ctx.globalAlpha = 1;
+            }
+            if (obj.outlined) {
+                ctx.strokeStyle = this.getColor(obj.color);
+                ctx.lineWidth = this.getThickness(obj.thickness);
+                ctx.setLineDash(this.getLineDash(obj.lineStyle));
+                ctx.stroke();
+            }
             ctx.restore();
         }
         else if (obj instanceof TikZPath) {
@@ -5496,62 +5659,32 @@ class TikZDrawApp {
     
     getResolvedCurveLoops(region) {
         if (!region.curveLoops) return [];
-        const sources = new Map(this.objects.map(obj => [obj.id, obj]));
-        const primitives = new Map();
-        const rings = [];
-        for (const saved of region.curveLoops) {
-            const spans = [];
-            for (const ref of saved) {
-                const source = sources.get(ref.objectId);
-                if (!source) return [];
-                if (!primitives.has(source)) {
-                    primitives.set(source, fillPrimitivesFor(source, name => this.getCoordByName(name)));
-                }
-                const primitive = primitives.get(source)[ref.part];
-                if (!primitive) return [];
-                spans.push({ ...ref, primitive, forward: ref.t1 > ref.t0 });
-            }
+        const getCoord = name => this.getCoordByName(name);
+        region.sides ??= Object.fromEntries(fillFaceSides(region.curveLoops));
+        const ids = new Set(region.sourceIds);
+        const sources = this.objects.filter(obj => ids.has(obj.id));
+        if (sources.length !== ids.size) return [];
 
-            // A whole ellipse has an arbitrary parameter seam at angle zero. Join runs
-            // split there before updating intersections so an edited junction can cross it.
-            const periodic = span => span.primitive.kind === 'arc' &&
-                Math.abs(span.primitive.sweep) >= Math.PI * 2 - 1e-10;
-            const seam = (a, b) => periodic(a) && a.primitive === b.primitive &&
-                a.forward === b.forward && Math.abs(a.t1 - b.t0) > 1 - 1e-10;
-            if (spans.length > 1 && seam(spans[spans.length - 1], spans[0])) {
-                spans[0].t0 = spans.pop().t0;
-            }
-            const runs = [];
-            for (const span of spans) {
-                const last = runs[runs.length - 1];
-                if (last && seam(last, span)) last.t1 = span.t1;
-                else runs.push(span);
-            }
-
-            for (let i = 0; i < runs.length; i++) {
-                const a = runs[i], b = runs[(i + 1) % runs.length];
-                const p = fillPrimitivePoint(a.primitive, a.t1), q = fillPrimitivePoint(b.primitive, b.t0);
-                if (Math.hypot(q.x - p.x, q.y - p.y) <= 1e-7) continue;
-                const hit = refineFillIntersection(a.primitive, b.primitive, a.t1, b.t0);
-                if (!hit || (a.primitive === b.primitive && Math.abs(hit.ta - hit.tb) < 1e-7)) return [];
-                a.t1 = hit.ta;
-                b.t0 = hit.tb;
-            }
-
-            const ring = [];
-            for (const span of runs) {
-                if (periodic(span) && (span.forward ? span.t1 < span.t0 : span.t1 > span.t0)) {
-                    const end = span.forward ? 1 : 0;
-                    if (span.t0 !== end) ring.push({ ...span, t1: end });
-                    if (span.t1 !== 1 - end) ring.push({ ...span, t0: 1 - end });
-                } else if (span.t0 !== span.t1) {
-                    ring.push(span);
-                }
-            }
-            if (!ring.length) return [];
-            rings.push(ring);
+        // Recompute only when a source's geometry (or the saved outline) changes.
+        const primitives = new Map(sources.map(obj => [obj.id, fillPrimitivesFor(obj, getCoord)]));
+        const key = this.regionGeometryKey(region, sources, primitives);
+        if (region._resolved?.key !== key) {
+            const loops = resolveFillFace(region.curveLoops, region.sides, sources, getCoord);
+            // Keep the matched outline so the next edit starts from where the fill is now.
+            if (loops) region.curveLoops = TikZRegion.copyCurveLoops(loops);
+            region._resolved = { key: loops ? this.regionGeometryKey(region, sources, primitives) : key, loops };
         }
-        return rings;
+        const loops = region._resolved.loops;
+        if (!loops) return [];
+        return loops.map(ring => ring.map(run => ({
+            ...run, primitive: primitives.get(run.objectId)[run.part], forward: run.t1 > run.t0
+        })));
+    }
+
+    regionGeometryKey(region, sources, primitives) {
+        return JSON.stringify([region.curveLoops, region.sides, sources.map(obj => primitives.get(obj.id).map(p =>
+            [p.kind, ...['p0', 'p1', 'p2', 'p3'].flatMap(k => p[k] ? [p[k].x, p[k].y] : []),
+             p.cx, p.cy, p.rx, p.ry, p.rotation, p.start, p.sweep]))]);
     }
 
     getRegionCurves(region) {
@@ -6541,17 +6674,7 @@ class TikZDrawApp {
         } else if (obj instanceof TikZRectangle) {
             html += this.renderRectProperties(obj);
         } else if (obj instanceof TikZRegion) {
-            html += `<div class="property-row">
-                <span class="property-label">Fill color:</span>
-                <div class="property-input">${this.renderColorSelect(obj.fillColor, 'fillColor')}</div>
-            </div>
-            <div class="property-row">
-                <label class="property-label" for="opacitySlider">Opacity:</label>
-                <div class="property-input">
-                    <input id="opacitySlider" type="range" min="0" max="1" step="0.01" data-prop="fillOpacity" value="${obj.fillOpacity}">
-                    <span id="opacityValue">${Math.round(obj.fillOpacity * 100)}%</span>
-                </div>
-            </div>`;
+            html += this.renderRegionProperties(obj);
         } else if (obj instanceof TikZPath) {
             html += this.renderPathProperties(obj);
         } else if (obj instanceof TikZBezier) {
@@ -6575,8 +6698,8 @@ class TikZDrawApp {
         }
     }
     
-    renderColorSelect(currentColor, propertyName) {
-        let options = (propertyName == 'fill') ? [`<option value="none" ${currentColor === "none" ? 'selected' : ''}>none</option>`] : [];
+    renderColorSelect(currentColor, propertyName, allowNone = propertyName === 'fill') {
+        let options = allowNone ? [`<option value="none" ${currentColor === "none" ? 'selected' : ''}>none</option>`] : [];
         options += Object.keys(TIKZ_COLORS).map(c => 
             `<option value="${c}" ${currentColor === c ? 'selected' : ''}>${c}</option>`
         ).join('');
@@ -6952,6 +7075,41 @@ class TikZDrawApp {
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
                 <div class="property-input">${this.renderPatternSelect(path.pattern, 'pattern')}</div>
+            </div>
+        `;
+    }
+
+    // Same Color / Thickness / Style / Fill / Opacity / Pattern rows as the other shapes.
+    // Color is the fill's own outline and defaults to none.
+    renderRegionProperties(region) {
+        return `
+            <div class="property-row">
+                <span class="property-label">Name:</span>
+                <div class="property-input"><input type="text" data-prop="name" value="${region.name}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Color:</span>
+                <div class="property-input">${this.renderColorSelect(region.color, 'color', true)}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Thickness:</span>
+                <div class="property-input">${this.renderThicknessSelect(region.thickness, 'thickness')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Style:</span>
+                <div class="property-input">${this.renderLineStyleSelect(region.lineStyle, 'lineStyle')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Fill:</span>
+                <div class="property-input">${this.renderColorSelect(region.fill, 'fill')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${region.fillOpacity}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Pattern:</span>
+                <div class="property-input">${this.renderPatternSelect(region.pattern, 'pattern')}</div>
             </div>
         `;
     }
@@ -7796,7 +7954,7 @@ class TikZDrawApp {
     }
     
     getObjectDisplayName(obj) {
-        if (obj instanceof TikZRegion) return `${obj.name} (${obj.fillColor})`;
+        if (obj instanceof TikZRegion) return `${obj.name} (${obj.fill})`;
         if (obj instanceof TikZCoordinate) return `${obj.name} (${obj.x.toFixed(2)}, ${obj.y.toFixed(2)})`;
         if (obj instanceof TikZSegment) return `${obj.name} (${obj.from} → ${obj.to})`;
         if (obj instanceof TikZVector) return `${obj.name} (${obj.from} → ${obj.to})`;
@@ -8363,7 +8521,7 @@ class TikZDrawApp {
         // Check if any objects use patterns
         const usesPatterns = this.objects.some(o =>
             (o instanceof TikZCircle || o instanceof TikZRectangle || o instanceof TikZPath ||
-             (o instanceof TikZBezier && o.filled)) &&
+             o instanceof TikZRegion || (o instanceof TikZBezier && o.filled)) &&
             o.pattern && o.pattern !== 'none'
         );
 
@@ -8488,14 +8646,12 @@ class TikZDrawApp {
             const result = await this.saveFile(blob);
             if (!result || generation !== this.projectGeneration) return;
 
-            if (result.written) {
-                this.savedDrawing = checkpoint;
-                this.currentFilename = result.filename;
-                const message = this.hasUnsavedChanges ? 'File saved. Newer changes are still unsaved.' : 'Project saved.';
-                this.showToast(message, 'success');
-            } else {
-                this.showToast('Download requested. This browser cannot confirm when the file is saved.', 'info', 4000);
-            }
+            // A download link can't confirm the file reached disk; assume it did.
+            this.savedDrawing = checkpoint;
+            this.currentFilename = result.filename;
+            const saved = result.written ? 'Project saved.' : 'Project downloaded.';
+            const message = this.hasUnsavedChanges ? saved + ' Newer changes are still unsaved.' : saved;
+            this.showToast(message, 'success');
         } catch (err) {
             this.showToast('Could not save the project: ' + err.message, 'error', 5000);
         } finally {
@@ -8551,8 +8707,13 @@ class TikZDrawApp {
         if (obj instanceof TikZRegion) {
             data.loops = TikZRegion.copyLoops(obj.loops);
             if (obj.curveLoops) data.curveLoops = TikZRegion.copyCurveLoops(obj.curveLoops);
-            data.fillColor = obj.fillColor;
+            if (obj.sides) data.sides = { ...obj.sides };
+            data.fill = obj.fill;
             data.fillOpacity = obj.fillOpacity;
+            data.pattern = obj.pattern;
+            data.color = obj.color;
+            data.thickness = obj.thickness;
+            data.lineStyle = obj.lineStyle;
             data.name = obj.name;
         } else if (obj instanceof TikZCoordinate) {
             data.x = obj.x;
@@ -8822,12 +8983,21 @@ class TikZDrawApp {
                             [span.t0, span.t1].every(t => Number.isFinite(t) && t >= 0 && t <= 1);
                         if (!Array.isArray(data.curveLoops) || !data.curveLoops.length || !data.curveLoops.every(loop =>
                             Array.isArray(loop) && loop.length && loop.every(validSpan))) return null;
-                        obj = new TikZRegion([], data.fillColor, data.fillOpacity, data.curveLoops);
+                        obj = new TikZRegion([], data.fill ?? data.fillColor, data.fillOpacity, data.curveLoops);
                     } else {
                         if (!Array.isArray(data.loops) || !data.loops.length || !data.loops.every(loop =>
                             Array.isArray(loop) && loop.length >= 3 && loop.every(validVertex))) return null;
-                        obj = new TikZRegion(data.loops, data.fillColor, data.fillOpacity);
+                        obj = new TikZRegion(data.loops, data.fill ?? data.fillColor, data.fillOpacity);
                     }
+                    // Older files have no sides; the constructor derived them from the outline.
+                    const validSides = data.sides && typeof data.sides === 'object' &&
+                        Object.values(data.sides).every(side => ['+', '-', '±'].includes(side));
+                    if (obj.curveLoops && validSides) obj.sides = { ...data.sides };
+                    // Older files saved only fillColor and fillOpacity.
+                    obj.pattern = data.pattern || 'none';
+                    obj.color = data.color || 'none';
+                    obj.thickness = data.thickness || 'thin';
+                    obj.lineStyle = data.lineStyle || 'solid';
                     obj.name = data.name || obj.name;
                     break;
                 }
@@ -9099,7 +9269,7 @@ class TikZDrawApp {
         const copied = new Set(this.withFillBoundaries(this.selectedObjects));
         const sourceIds = new Set([...copied].map(obj => obj.id));
         for (const obj of this.objects) {
-            if (obj.curveLoops?.every(ring => ring.every(run => sourceIds.has(run.objectId)))) copied.add(obj);
+            if (obj.curveLoops && obj.sourceIds.every(id => sourceIds.has(id))) copied.add(obj);
         }
         const objects = this.objects.filter(obj => copied.has(obj));
         const coordNames = new Set(objects.flatMap(obj => this.getObjectCoordinates(obj)));
@@ -9219,6 +9389,10 @@ class TikZDrawApp {
         for (const obj of newObjects) {
             for (const ring of obj.curveLoops || []) {
                 for (const run of ring) run.objectId = pastedIds.get(run.objectId) || run.objectId;
+            }
+            if (obj.sides) {
+                obj.sides = Object.fromEntries(Object.entries(obj.sides).map(([id, side]) =>
+                    [pastedIds.get(id) || id, side]));
             }
         }
         // Select all pasted objects
