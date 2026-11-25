@@ -1097,6 +1097,30 @@ const ARROW_TIP_GROUPS = {
 };
 const STANDARD_ARROW_TIPS = new Set(Object.values(ARROW_TIP_GROUPS).flat());
 
+// The arrowType value for a catalog tip ('Latex' is stored as the classic 'latex').
+const arrowTipValue = tip => tip === 'Latex' ? 'latex' : tip;
+
+// Which family-dropdown entry an arrowType value belongs to.
+function arrowFamilyOf(type) {
+    if (type === 'none' || type === 'simple' || type === 'custom') return type;
+    return Object.keys(ARROW_TIP_GROUPS)
+        .find(group => ARROW_TIP_GROUPS[group].some(tip => arrowTipValue(tip) === type)) || 'custom';
+}
+
+// Every family with an actual tip gets the Tip row, even single-tip ones (Simple, Radial).
+const arrowFamilyHasTips = family => family !== 'none' && family !== 'custom';
+
+// Last tip the user applied in each family, for this session (see syncArrowControls).
+const lastTipByFamily = {};
+
+// The arrowType value to apply when the user switches the family dropdown:
+// the tip last used in that family, else the family's first tip.
+function defaultArrowTip(family) {
+    if (!(family in ARROW_TIP_GROUPS)) return family; // 'none' / 'simple'
+    const tips = ARROW_TIP_GROUPS[family].map(arrowTipValue);
+    return tips.includes(lastTipByFamily[family]) ? lastTipByFamily[family] : tips[0];
+}
+
 function arrowTips(spec) {
     const [start, end] = (spec || '').split('-');
     const tipName = tip => {
@@ -6677,18 +6701,34 @@ class TikZDrawApp {
 
     renderArrowProperties(obj) {
         const { type, placement } = arrowSettings(obj);
-        const option = (label, value = label) =>
-            `<option value="${value}" ${value === type ? 'selected' : ''}>${label}</option>`;
-        const groups = Object.entries(ARROW_TIP_GROUPS).map(([group, tips]) =>
-            `<optgroup label="${group}">${tips.map(tip => option(tip, tip === 'Latex' ? 'latex' : tip)).join('')}</optgroup>`
+        const family = arrowFamilyOf(type);
+        // Every type stays in #arrowType so it can hold any value; options outside
+        // the current family are hidden to keep the native popup short.
+        const option = (label, value, group) =>
+            `<option value="${value}" data-family="${group}" ${value === type ? 'selected' : ''} ${group === family ? '' : 'hidden'}>${label}</option>`;
+        const tipOptions = Object.entries(ARROW_TIP_GROUPS).flatMap(([group, tips]) =>
+            tips.map(tip => option(tip, arrowTipValue(tip), group))
         ).join('');
+        const familyOption = (label, value) =>
+            `<option value="${value}" ${value === family ? 'selected' : ''}>${label}</option>`;
+        const hasTips = arrowFamilyHasTips(family);
         return `
             <div class="property-row">
-                <label class="property-label" for="arrowType">Arrow Type:</label>
+                <label class="property-label" for="arrowFamily">Arrow Type:</label>
+                <div class="property-input">
+                    <select id="arrowFamily" data-arrow-family>
+                        ${family === 'custom' ? '<option value="custom" selected disabled>Custom</option>' : ''}
+                        ${familyOption('None', 'none')}${familyOption('Simple', 'simple')}
+                        ${Object.keys(ARROW_TIP_GROUPS).map(group => familyOption(group, group)).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="property-row" ${hasTips ? '' : 'style="display:none"'}>
+                <label class="property-label" for="arrowType">Arrow Tip:</label>
                 <div class="property-input">
                     <select id="arrowType" data-prop="arrowType">
-                        ${type === 'custom' ? '<option value="custom" selected disabled>Custom</option>' : ''}
-                        ${option('None', 'none')}${option('Simple', 'simple')}${groups}
+                        ${type === 'custom' ? '<option value="custom" data-family="custom" selected disabled hidden>Custom</option>' : ''}
+                        ${option('None', 'none', 'none')}${option('Simple', 'simple', 'simple')}${tipOptions}
                     </select>
                 </div>
             </div>
@@ -6910,7 +6950,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Boundary:</span>
-                <label class="property-input"><input type="checkbox" data-prop="closed" ${bezier.closed ? 'checked' : ''}> Close curve with a line</label>
+                <label class="property-input" style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" data-prop="closed" ${bezier.closed ? 'checked' : ''}> Close curve with a line</label>
             </div>
             <div class="property-row">
                 <span class="property-label">Color:</span>
@@ -7138,6 +7178,17 @@ class TikZDrawApp {
             });
         });
 
+        // Arrow family is a view filter: switching it picks a tip in that family,
+        // which then goes through the normal arrowType change path (undo, render).
+        const familySelect = panel.querySelector('[data-arrow-family]');
+        if (familySelect) {
+            familySelect.addEventListener('change', () => {
+                const tipSelect = panel.querySelector('[data-prop="arrowType"]');
+                tipSelect.value = defaultArrowTip(familySelect.value);
+                this.handlePropertyChange(tipSelect);
+            });
+        }
+
         // Special handling for image aspect ratio lock
         const lockAspect = panel.querySelector('#lockAspect');
         if (lockAspect) {
@@ -7257,10 +7308,7 @@ class TikZDrawApp {
         
         if (prop === 'arrowType' || prop === 'arrowPlacement') {
             setArrowControl(selectedObj, prop, value);
-            const { type } = arrowSettings(selectedObj);
-            const panel = el.closest('#propertiesPanel');
-            panel.querySelector('[data-prop="arrowType"]').value = type;
-            panel.querySelector('[data-prop="arrowSize"]').closest('.property-row').style.display = type === 'none' ? 'none' : '';
+            this.syncArrowControls(el.closest('#propertiesPanel'), selectedObj);
         } else {
             selectedObj[prop] = value;
         }
@@ -7268,6 +7316,21 @@ class TikZDrawApp {
         this.updateObjectList();
     }
     
+    // Bring the family/tip/size controls in line with the object's stored arrow.
+    syncArrowControls(panel, obj) {
+        const { type } = arrowSettings(obj);
+        const family = arrowFamilyOf(type);
+        if (family in ARROW_TIP_GROUPS) lastTipByFamily[family] = type;
+        const familySelect = panel.querySelector('[data-arrow-family]');
+        const tipSelect = panel.querySelector('[data-prop="arrowType"]');
+        familySelect.querySelector('option[value="custom"]')?.remove();
+        familySelect.value = family;
+        tipSelect.value = type;
+        for (const opt of tipSelect.options) opt.hidden = opt.dataset.family !== family;
+        tipSelect.closest('.property-row').style.display = arrowFamilyHasTips(family) ? '' : 'none';
+        panel.querySelector('[data-prop="arrowSize"]').closest('.property-row').style.display = type === 'none' ? 'none' : '';
+    }
+
     addEmbeddedNode() {
         if (this.selectedObjects.length !== 1 || !this.selectedObjects[0].nodes) {
             return;

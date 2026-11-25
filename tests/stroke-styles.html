@@ -209,6 +209,40 @@ frame.addEventListener('load', () => {
         }
     });
 
+    test('Arrow family dropdown keeps the tip list short and in sync', () => {
+        const familySelect = () => doc.querySelector('#propertiesPanel [data-arrow-family]');
+        const visibleTips = () => [...arrowControl('arrowType').options].filter(o => !o.hidden).map(o => o.value);
+        const tipRowShown = () => arrowControl('arrowType').closest('.property-row').style.display !== 'none';
+        const [object] = open([{ ...shapes[0], arrowEnd: '-Diamond' }]);
+        selectShape(object);
+        check(familySelect().value === 'Geometric', 'Diamond should open in the Geometric family');
+        check(visibleTips().length <= 10 && visibleTips().includes('Diamond'), 'Tip list not filtered: ' + visibleTips());
+        for (const family of Object.keys(frame.contentWindow.eval('ARROW_TIP_GROUPS'))) {
+            familySelect().value = family;
+            familySelect().dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+            const type = arrowControl('arrowType').value;
+            check(tipRowShown() && visibleTips().includes(type), 'Family ' + family + ' picked a hidden tip: ' + type);
+            check(object.arrowEnd.startsWith('-') && object.arrowEnd !== '-', 'Family switch lost the arrow: ' + object.arrowEnd);
+        }
+        familySelect().value = 'none';
+        familySelect().dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        check(object.arrowEnd === 'none' && !tipRowShown(), 'None family should clear the arrow and hide tips');
+        familySelect().value = 'simple';
+        familySelect().dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        check(object.arrowEnd === '->' && tipRowShown() && visibleTips().join() === 'simple',
+            'Simple family should show its single tip like Radial does');
+        choose('arrowType', 'Hooks');
+        check(familySelect().value === 'Barbs and brackets' && tipRowShown(), 'Family did not follow the chosen tip');
+        // Each family remembers the last tip used in it.
+        choose('arrowType', 'Kite');
+        familySelect().value = 'Barbs and brackets';
+        familySelect().dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        check(arrowControl('arrowType').value === 'Hooks', 'Barbs family forgot Hooks');
+        familySelect().value = 'Geometric';
+        familySelect().dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        check(arrowControl('arrowType').value === 'Kite' && object.arrowEnd === '-Kite', 'Geometric family forgot Kite');
+    });
+
     test('A disabled arrow retains its placement across a project round trip', () => {
         const [line] = open([shapes[0]]);
         selectShape(line);
