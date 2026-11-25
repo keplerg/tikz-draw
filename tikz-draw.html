@@ -1745,7 +1745,7 @@ class TikZLabel extends TikZObject {
         if (this.color !== 'black') opts.push(`text=${this.color}`);
         if (this.fontSize !== 'normal') opts.push(`font=\\${this.fontSize}`);
         if (this.distance > 0) opts[0] = `${this.position}=${this.distance}pt`;
-        if (this.rotation !== 0) opts.push(`rotate=-${this.rotation}`);
+        if (this.rotation !== 0) opts.push(`rotate=${tikzNumber(-this.rotation)}`);
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
         return `  \\node${optStr} at (${this.at}) {${this.text}};`;
@@ -1791,7 +1791,7 @@ class TikZImage extends TikZObject {
 
         // Add rotation if not zero
         if (this.rotation !== 0) {
-            graphicsOpts += `,angle=-${this.rotation.toFixed(1)}`;
+            graphicsOpts += `,angle=${(-this.rotation).toFixed(1)}`;
         }
 
         return `  \\node${optStr} at (${this.at}.${this.anchor}) {\\includegraphics[${graphicsOpts}]{${this.filename}}};`;
@@ -8560,7 +8560,8 @@ class TikZDrawApp {
         const coords = this.objects.filter(o => o instanceof TikZCoordinate);
         const visibleCoords = coords.filter(o => o.showPoint);
         const labeledCoords = coords.filter(o => (o.label.length > 0));
-        const others = this.objects.filter(o => !coords.includes(o)).concat(visibleCoords).concat(labeledCoords);
+        // A point that is both visible and labelled must appear once, not once per list.
+        const others = [...new Set(this.objects.filter(o => !coords.includes(o)).concat(visibleCoords).concat(labeledCoords))];
         
         // Coordinates
         if (coords.length > 0) {
@@ -8872,6 +8873,7 @@ class TikZDrawApp {
             data.step = obj.step;
             data.color = obj.color;
             data.thickness = obj.thickness;
+            data.rotation = obj.rotation;
             data.expanded = obj.expanded;
             data.name = obj.name;
         }
@@ -9160,6 +9162,7 @@ class TikZDrawApp {
                     obj.step = data.step;
                     obj.color = data.color;
                     obj.thickness = data.thickness;
+                    obj.rotation = data.rotation || 0;
                     obj.name = data.name || obj.name;
                     break;
                 default:
