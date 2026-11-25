@@ -155,6 +155,11 @@ def eval_length(text, default_unit='cm'):
     return eval_number(text) * UNIT_CM[default_unit], default_unit
 
 
+def half_up(value):
+    """Round halves up, like xcolor (and JavaScript's Math.round), not to even."""
+    return math.floor(value + 0.5)
+
+
 def fmt_num(value):
     """Round away float noise (e.g. 0.30000000000000004)."""
     rounded = round(value, 9)
@@ -459,7 +464,7 @@ class TikZConverter:
                 return None
             rgb = tuple(pct * a + (1 - pct) * b for a, b in zip(rgb, other))
         # Round halves up like xcolor (Python's round() would turn 178.5 into 178).
-        return '#{:02x}{:02x}{:02x}'.format(*(int(v + 0.5) for v in rgb))
+        return '#{:02x}{:02x}{:02x}'.format(*(half_up(v) for v in rgb))
 
     @staticmethod
     def hex_rgb(hex_color):
@@ -488,14 +493,14 @@ class TikZConverter:
             if model == 'RGB':
                 r, g, b = (int(eval_number(v)) for v in spec.split(','))
             elif model == 'rgb':
-                r, g, b = (round(eval_number(v) * 255) for v in spec.split(','))
+                r, g, b = (half_up(eval_number(v) * 255) for v in spec.split(','))
             elif model == 'HTML':
                 r, g, b = self.hex_rgb(spec.strip())
             elif model == 'gray':
-                r = g = b = round(eval_number(spec) * 255)
+                r = g = b = half_up(eval_number(spec) * 255)
             elif model == 'cmyk':
                 c, m, y, k = (eval_number(v) for v in spec.split(','))
-                r, g, b = (round(255 * (1 - v) * (1 - k)) for v in (c, m, y))
+                r, g, b = (half_up(255 * (1 - v) * (1 - k)) for v in (c, m, y))
             else:
                 self.warn(f'Colour model {model!r} for {name!r} is not supported')
                 return
@@ -1817,7 +1822,11 @@ def convert_tex(tex_content, base_dir=Path('.')):
     macros = collect_macros(clean)
     colors = preamble_colors(tex_content)
     results = []
-    for options, body in extract_tikzpictures(clean):
+    pictures = extract_tikzpictures(clean)
+    # Pasted commands without the environment around them.
+    if not pictures and re.search(r'\\(draw|fill|filldraw|node|coordinate|path)\b', clean):
+        pictures = [('', clean)]
+    for options, body in pictures:
         converter = TikZConverter(base_dir, macros, colors)
         try:
             project = converter.convert(body, options)

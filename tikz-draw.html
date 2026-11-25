@@ -619,6 +619,27 @@
         .modal.large {
             width: 600px;
         }
+
+        /* Import Modal */
+        .modal.large { max-width: calc(100vw - 32px); }
+        #importModal [hidden] { display: none !important; }  /* .btn sets display, which beats [hidden] */
+        .import-help { font-size: 12px; color: #b0b0b0; margin-bottom: 10px; line-height: 1.4; }
+        .import-help code { color: #e0e0e0; }
+        .import-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .import-row select {
+            background: #333333; border: 1px solid #404040; color: #e0e0e0;
+            padding: 5px 8px; border-radius: 3px; font-size: 12px;
+        }
+        .import-note { font-size: 12px; color: #b0b0b0; }
+        .import-textarea { height: 260px; resize: vertical; }
+        .import-warnings {
+            margin-top: 10px; padding: 8px 12px; max-height: 140px; overflow-y: auto;
+            background: #3a3320; border: 1px solid #6b5a2a; border-radius: 4px;
+            color: #f0d890; font-size: 12px;
+        }
+        .import-warnings p { margin-bottom: 4px; color: #f5e2a8; }
+        .import-warnings ul { padding-left: 18px; }
+        .import-warnings li { margin: 2px 0; }
         
         /* No selection message */
         .no-selection {
@@ -700,6 +721,7 @@
         <symbol id="i-grid" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M9 3v18" /><path d="M15 3v18" /></symbol>
         <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="12" r="1" /><circle cx="9" cy="5" r="1" /><circle cx="9" cy="19" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="15" cy="5" r="1" /><circle cx="15" cy="19" r="1" /></symbol>
         <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
+        <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="m8 11 4 4 4-4" /><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></symbol>
         <symbol id="i-label" viewBox="0 0 24 24"><path d="M12 4v16" /><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" /><path d="M9 20h6" /></symbol>
         <symbol id="i-line" viewBox="0 0 24 24"><path d="M5.8 18.2 18.2 5.8"/><circle cx="5" cy="19" r="1.9" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="1.9" fill="currentColor" stroke="none"/></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
@@ -735,6 +757,7 @@
             <button id="copyBtn" class="btn" onclick="app.copyObject()" title="Copy (Ctrl+C)" disabled><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg> Copy</button>
             <button id="pasteBtn" class="btn" onclick="app.pasteObject()" title="Paste (Ctrl+V)" disabled><svg class="icon" aria-hidden="true"><use href="#i-paste"/></svg> Paste</button>
             <button class="btn" onclick="app.loadProject()"><svg class="icon" aria-hidden="true"><use href="#i-open"/></svg> Open</button>
+            <button class="btn" onclick="app.showImport()" title="Import TikZ code"><svg class="icon" aria-hidden="true"><use href="#i-import"/></svg> Import</button>
             <button id="saveBtn" class="btn" onclick="app.saveProject()"><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
             <button class="btn btn-primary" onclick="app.showExport()"><svg class="icon" aria-hidden="true"><use href="#i-export"/></svg> Export TikZ</button>
         </div>
@@ -911,6 +934,35 @@
         </div>
     </div>
     
+    <!-- Import TikZ Modal -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal large" role="dialog" aria-labelledby="importTitle">
+            <div class="modal-header">
+                <h3 id="importTitle">Import TikZ</h3>
+                <button class="modal-close" onclick="app.closeImport()" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+            </div>
+            <p class="import-help">Paste a <code>tikzpicture</code> (or a whole .tex file), or open one. The import replaces the current drawing; Undo brings it back.</p>
+            <div class="import-row">
+                <button class="btn" type="button" onclick="document.getElementById('importFile').click()"><svg class="icon" aria-hidden="true"><use href="#i-open"/></svg> Open .tex&hellip;</button>
+                <button class="btn" type="button" onclick="document.getElementById('importImages').click()" title="Images used by \includegraphics"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg> Images&hellip;</button>
+                <input type="file" id="importFile" accept=".tex,.tikz,.txt,text/plain" hidden>
+                <input type="file" id="importImages" accept="image/png,image/jpeg,image/svg+xml" multiple hidden>
+                <select id="importPicture" aria-label="Picture to import" hidden></select>
+                <span id="importStatus" class="import-note" aria-live="polite"></span>
+            </div>
+            <textarea class="export-textarea import-textarea" id="importCode" spellcheck="false" aria-label="TikZ code"
+                placeholder="\begin{tikzpicture}&#10;  \draw (0,0) -- (2,1);&#10;\end{tikzpicture}"></textarea>
+            <div id="importWarnings" class="import-warnings" hidden>
+                <p id="importWarningsTitle"></p>
+                <ul id="importWarningList"></ul>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn" id="importCancelBtn" onclick="app.closeImport()">Cancel</button>
+                <button class="btn btn-primary" id="importBtn" onclick="app.runImport()"><svg class="icon" aria-hidden="true"><use href="#i-import"/></svg> Import</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Embedded Node Editor Modal -->
     <div class="modal-overlay" id="nodeEditorModal">
         <div class="modal">
@@ -2530,6 +2582,1624 @@ function trimArrowShaft(curve, startDistance, endDistance) {
         return samples[i-1].t + fraction * (samples[i].t - samples[i-1].t);
     }
     return fillPrimitiveSpan(curve, parameterAt(startDistance), parameterAt(length - endDistance));
+}
+
+// ============================================================================
+// TikZ import: a port of tikz2view.py (keep the two in step; both are checked
+// against tests/tikz2view/*.expected.json). Turns TikZ into a project object
+// for loadProjectData(), reporting anything it cannot represent as a warning.
+// ============================================================================
+
+const TIKZ_IMPORT = {
+    xcolorExtra: { pink: '#FFBFBF', lime: '#BFFF00', olive: '#808000', teal: '#008080', violet: '#800080' },
+    lineStyles: new Set(['solid', 'dashed', 'dotted', 'dashdotted', 'dashdotdotted', 'loosely dashed',
+        'densely dashed', 'loosely dotted', 'densely dotted', 'loosely dashdotted', 'densely dashdotted']),
+    lineStyleAliases: { 'loosely dashdotdotted': 'loosely dashdotted', 'densely dashdotdotted': 'densely dashdotted' },
+    thicknessPt: { 'ultra thin': 0.1, 'very thin': 0.2, 'thin': 0.4, 'thick': 0.8, 'very thick': 1.2, 'ultra thick': 1.6 },
+    patterns: new Set(Object.keys(TIKZ_PATTERNS).filter(p => p !== 'none')),
+    positions: ['above left', 'above right', 'below left', 'below right', 'above', 'below', 'left', 'right'],
+    anchorPositions: {
+        'south': 'above', 'north': 'below', 'east': 'left', 'west': 'right',
+        'south west': 'above right', 'south east': 'above left', 'north west': 'below right', 'north east': 'below left'
+    },
+    fontSizes: {
+        tiny: 'tiny', scriptsize: 'scriptsize', footnotesize: 'footnotesize', small: 'small', normalsize: 'normal',
+        large: 'large', Large: 'Large', LARGE: 'LARGE', huge: 'huge', Huge: 'Huge'
+    },
+    arrowTips: new Set(['Stealth', 'Latex', 'Triangle', 'Kite', 'Diamond', 'Turned Square', 'Square', 'Rectangle',
+        'Circle', 'Ellipse', 'Straight Barb', 'Arc Barb', 'Hooks', 'Tee Barb', 'Bar', 'Bracket', 'Parenthesis', 'To',
+        'Computer Modern Rightarrow', 'Classical TikZ Rightarrow', 'Implies', 'Butt Cap', 'Round Cap', 'Triangle Cap',
+        'Fast Round', 'Fast Triangle', 'Rays']),
+    arrowAliases: { latex: 'latex', LaTeX: 'LaTeX', stealth: 'Stealth', to: 'To', 'triangle 45': 'Triangle',
+        'triangle 60': 'Triangle', '|': 'Bar' },
+    nodePos: { 'midway': 0.5, 'at start': 0, 'at end': 1, 'near start': 0.25, 'near end': 0.75,
+        'very near start': 0.125, 'very near end': 0.875 },
+    unitCm: { cm: 1, mm: 0.1, pt: 1 / 28.45274, bp: 2.54 / 72, in: 2.54, em: 0.35, ex: 0.15 },
+    imageTypes: { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' },
+    tol: 1e-4,
+    flags: new Set(['draw', 'fill', 'sloped', 'even odd rule', 'nonzero rule', 'circle', 'midway', 'auto', 'swap',
+        "'", 'transform shape', 'inner sep']),
+    keptKeys: new Set(['radius', 'x radius', 'y radius', 'start angle', 'end angle', 'delta angle', 'inner sep',
+        'outer sep', 'minimum size', 'out', 'in', 'looseness'])
+};
+
+// TikZ arithmetic without eval(): numbers, + - * / % ^ **, parentheses and a fixed set
+// of functions (trigonometry in degrees, as in TikZ).
+const TIKZ_FUNCS = {
+    sin: d => Math.sin(d * Math.PI / 180), cos: d => Math.cos(d * Math.PI / 180), tan: d => Math.tan(d * Math.PI / 180),
+    asin: v => Math.asin(v) * 180 / Math.PI, acos: v => Math.acos(v) * 180 / Math.PI, atan: v => Math.atan(v) * 180 / Math.PI,
+    atan2: (y, x) => Math.atan2(y, x) * 180 / Math.PI, sqrt: Math.sqrt, abs: Math.abs, exp: Math.exp, ln: Math.log,
+    log10: Math.log10, min: Math.min, max: Math.max, round: Math.round, floor: Math.floor, ceil: Math.ceil,
+    int: Math.trunc, veclen: Math.hypot, deg: r => r * 180 / Math.PI, rad: d => d * Math.PI / 180
+};
+const TIKZ_CONSTS = { pi: Math.PI, e: Math.E };
+
+function tikzEvalNumber(text) {
+    const source = String(text).trim();
+    const tokens = source.match(/\d*\.\d+(?:e[+-]?\d+)?|\d+\.?(?:e[+-]?\d+)?|[A-Za-z_]\w*|\*\*|[-+*/^%(),]|\S/gi) || [];
+    const fail = () => { throw new Error(`cannot evaluate ${JSON.stringify(source)}`); };
+    if (!tokens.length) fail();
+    let i = 0;
+    const peek = () => tokens[i];
+    const expect = token => { if (tokens[i++] !== token) fail(); };
+    function sum() {
+        let value = product();
+        while (peek() === '+' || peek() === '-') value = tokens[i++] === '+' ? value + product() : value - product();
+        return value;
+    }
+    function product() {
+        let value = unary();
+        while (['*', '/', '%'].includes(peek())) {
+            const op = tokens[i++], right = unary();
+            value = op === '*' ? value * right : op === '/' ? value / right : ((value % right) + right) % right;
+        }
+        return value;
+    }
+    function unary() {
+        if (peek() === '-') { i++; return -unary(); }
+        if (peek() === '+') { i++; return unary(); }
+        const base = atom();
+        if (peek() === '^' || peek() === '**') { i++; return base ** unary(); }
+        return base;
+    }
+    function atom() {
+        const token = tokens[i++];
+        if (token === undefined) fail();
+        if (/^[\d.]/.test(token)) return Number(token);
+        if (token === '(') { const value = sum(); expect(')'); return value; }
+        if (/^[A-Za-z_]/.test(token)) {
+            if (peek() === '(') {
+                if (!Object.hasOwn(TIKZ_FUNCS, token)) fail();
+                i++;
+                const args = [];
+                if (peek() !== ')') {
+                    args.push(sum());
+                    while (peek() === ',') { i++; args.push(sum()); }
+                }
+                expect(')');
+                return TIKZ_FUNCS[token](...args);
+            }
+            if (Object.hasOwn(TIKZ_CONSTS, token)) return TIKZ_CONSTS[token];
+        }
+        fail();
+    }
+    const value = sum();
+    if (i !== tokens.length || !Number.isFinite(value)) fail();
+    return value;
+}
+
+// A length in cm: [value, unit].
+function tikzEvalLength(text, defaultUnit = 'cm') {
+    const source = String(text).trim();
+    const match = source.match(/^(.*?)\s*(cm|mm|pt|bp|in|em|ex)$/);
+    if (match && match[1]) return [tikzEvalNumber(match[1]) * TIKZ_IMPORT.unitCm[match[2]], match[2]];
+    return [tikzEvalNumber(source) * TIKZ_IMPORT.unitCm[defaultUnit], defaultUnit];
+}
+
+function tikzFmt(value) {
+    const rounded = Math.round(value * 1e9) / 1e9;
+    return rounded === 0 ? 0 : rounded;
+}
+
+const TIKZ_PAIRS = { '{': '}', '[': ']', '(': ')' };
+
+// text[i] opens a group; returns [inner text, index after the closing bracket].
+function tikzReadGroup(text, i) {
+    const opener = text[i], closer = TIKZ_PAIRS[opener];
+    let depth = 0, j = i;
+    while (j < text.length) {
+        const ch = text[j];
+        if (ch === '\\') { j += 2; continue; }
+        if (ch === '{' && opener !== '{') { j = tikzReadGroup(text, j)[1]; continue; }
+        if (ch === opener) depth++;
+        else if (ch === closer && --depth === 0) return [text.slice(i + 1, j), j + 1];
+        j++;
+    }
+    throw new Error(`unbalanced ${opener}`);
+}
+
+// Split on `sep` outside braces, brackets and parentheses.
+function tikzSplitTop(text, sep = ',') {
+    const parts = [];
+    let depth = 0, start = 0, i = 0;
+    while (i < text.length) {
+        const ch = text[i];
+        if (ch === '\\') { i += 2; continue; }
+        if ('{[('.includes(ch)) depth++;
+        else if ('}])'.includes(ch)) depth--;
+        else if (depth === 0 && text.startsWith(sep, i)) {
+            parts.push(text.slice(start, i));
+            start = i = i + sep.length;
+            continue;
+        }
+        i++;
+    }
+    parts.push(text.slice(start));
+    return parts.map(p => p.trim()).filter(Boolean);
+}
+
+function tikzStripComments(text) {
+    return text.split('\n').map(line => {
+        const match = /(?<!\\)%/.exec(line);
+        return match ? line.slice(0, match.index) : line;
+    }).join('\n');
+}
+
+function tikzSplitStatements(text) {
+    const statements = [];
+    let depth = 0, start = 0, i = 0;
+    while (i < text.length) {
+        const ch = text[i];
+        if (ch === '\\') { i += 2; continue; }
+        if ('{[('.includes(ch)) depth++;
+        else if ('}])'.includes(ch)) depth = Math.max(0, depth - 1);
+        else if (ch === ';' && depth === 0) {
+            statements.push(text.slice(start, i).trim());
+            start = i + 1;
+        }
+        i++;
+    }
+    const tail = text.slice(start).trim();
+    if (tail) statements.push(tail);
+    return statements.filter(Boolean);
+}
+
+function tikzEscapeRegex(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function tikzExpandMacros(text, macros) {
+    const names = Object.keys(macros).sort((a, b) => b.length - a.length);
+    if (!names.length) return text;
+    const pattern = new RegExp('\\\\(' + names.map(tikzEscapeRegex).join('|') + ')(?![A-Za-z])', 'g');
+    for (let k = 0; k < 10; k++) {
+        const expanded = text.replace(pattern, (_, name) => macros[name]);
+        if (expanded === text) break;
+        text = expanded;
+    }
+    return text;
+}
+
+const TIKZ_MACRO_DEF = /\\(?:def|newcommand\*?|renewcommand\*?|pgfmathsetmacro)\s*\{?\\[A-Za-z]+\}?\s*(?=\{)/g;
+
+function tikzRemoveMacroDefinitions(text) {
+    for (const match of [...text.matchAll(TIKZ_MACRO_DEF)].reverse()) {
+        try {
+            const end = tikzReadGroup(text, match.index + match[0].length)[1];
+            text = text.slice(0, match.index) + ' ' + text.slice(end);
+        } catch { /* unbalanced: leave it */ }
+    }
+    return text;
+}
+
+// \def, \newcommand and \pgfmathsetmacro with simple (argument-free) bodies.
+function tikzCollectMacros(text) {
+    const macros = {};
+    for (const match of text.matchAll(/\\(?:def|newcommand\*?|renewcommand\*?)\s*\{?\\([A-Za-z]+)\}?\s*(?=\{)/g)) {
+        try { macros[match[1]] = tikzReadGroup(text, match.index + match[0].length)[0].trim(); } catch {}
+    }
+    for (const match of text.matchAll(/\\pgfmathsetmacro\s*\{?\\([A-Za-z]+)\}?\s*(?=\{)/g)) {
+        try {
+            const body = tikzReadGroup(text, match.index + match[0].length)[0];
+            macros[match[1]] = String(tikzEvalNumber(tikzExpandMacros(body, macros)));
+        } catch {}
+    }
+    return macros;
+}
+
+function tikzDist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+// Parameter of the point on a fill primitive nearest to `point`: [t, distance].
+function tikzPrimParam(p, point) {
+    if (p.kind === 'line') {
+        const dx = p.p1.x - p.p0.x, dy = p.p1.y - p.p0.y, length2 = dx * dx + dy * dy;
+        let t = length2 ? ((point.x - p.p0.x) * dx + (point.y - p.p0.y) * dy) / length2 : 0;
+        t = Math.min(1, Math.max(0, t));
+        return [t, tikzDist(fillPrimitivePoint(p, t), point)];
+    }
+    if (p.kind === 'arc') {
+        const cos = Math.cos(-p.rotation), sin = Math.sin(-p.rotation);
+        const x = point.x - p.cx, y = point.y - p.cy;
+        const angle = Math.atan2((x * sin + y * cos) / p.ry, (x * cos - y * sin) / p.rx);
+        const t = (((angle - p.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / p.sweep;
+        if (t > 1) {
+            const ends = [0, 1].map(e => [e, tikzDist(fillPrimitivePoint(p, e), point)]);
+            return ends[0][1] <= ends[1][1] ? ends[0] : ends[1];
+        }
+        return [t, tikzDist(fillPrimitivePoint(p, t), point)];
+    }
+    let best = 0, bestDist = Infinity;
+    for (let k = 0; k <= 200; k++) {
+        const d = tikzDist(fillPrimitivePoint(p, k / 200), point);
+        if (d < bestDist) { bestDist = d; best = k / 200; }
+    }
+    let lo = Math.max(0, best - 0.005), hi = Math.min(1, best + 0.005);
+    for (let k = 0; k < 60; k++) {
+        const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+        if (tikzDist(fillPrimitivePoint(p, m1), point) < tikzDist(fillPrimitivePoint(p, m2), point)) hi = m2;
+        else lo = m1;
+    }
+    const t = (lo + hi) / 2;
+    return [t, tikzDist(fillPrimitivePoint(p, t), point)];
+}
+
+function tikzSegmentIntersection(a, b, c, d) {
+    const dx = b.x - a.x, dy = b.y - a.y, ex = d.x - c.x, ey = d.y - c.y;
+    const det = dx * ey - dy * ex;
+    if (Math.abs(det) < 1e-12) return null;
+    const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / det;
+    const u = ((c.x - a.x) * dy - (c.y - a.y) * dx) / det;
+    if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) return { x: a.x + t * dx, y: a.y + t * dy };
+    return null;
+}
+
+// [width, height] of PNG or JPEG data given as a data URL, else null.
+function tikzImageSize(dataUrl) {
+    let bytes;
+    try {
+        const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+        bytes = Uint8Array.from(binary.slice(0, 65536), ch => ch.charCodeAt(0));
+    } catch { return null; }
+    const u32 = i => ((bytes[i] << 24) >>> 0) + (bytes[i + 1] << 16) + (bytes[i + 2] << 8) + bytes[i + 3];
+    const u16 = i => (bytes[i] << 8) + bytes[i + 1];
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes.length >= 24) return [u32(16), u32(20)];
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+        let i = 2;
+        while (i + 9 < bytes.length) {
+            if (bytes[i] !== 0xFF) { i++; continue; }
+            const marker = bytes[i + 1];
+            if (marker >= 0xC0 && marker <= 0xCF && ![0xC4, 0xC8, 0xCC].includes(marker)) return [u16(i + 7), u16(i + 5)];
+            i += 2 + u16(i + 2);
+        }
+    }
+    return null;
+}
+
+class TikZImporter {
+    constructor(images = {}, macros = {}, colors = {}) {
+        this.images = images;          // filename -> data URL
+        this.macros = macros;
+        this.objects = [];
+        this.coords = new Map();       // name -> coordinate data
+        this.customColors = { ...colors };
+        this.warnings = [];
+        this.idCounter = 0;
+        this.reserved = new Set();
+        this.scale = 1;
+        this.transform = null;         // [degrees, {x, y}] while reading a rotated statement
+        this.pendingRegions = [];
+    }
+
+    // -- bookkeeping --------------------------------------------------------
+
+    warn(message) {
+        if (!this.warnings.includes(message)) this.warnings.push(message);
+    }
+
+    newId(prefix) {
+        return `${prefix}_${++this.idCounter}`;
+    }
+
+    add(obj) {
+        obj.locked ??= false;
+        obj.expanded ??= false;
+        this.objects.push(obj);
+        return obj;
+    }
+
+    generateCoordName() {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        for (let index = 1; ; index++) {
+            let name = '';
+            for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) name = letters[(n - 1) % 26] + name;
+            if (!this.coords.has(name) && !this.reserved.has(name)) return name;
+        }
+    }
+
+    defineCoord(name, x, y) {
+        if (this.coords.has(name)) {
+            const coord = this.coords.get(name);
+            coord.x = tikzFmt(x);
+            coord.y = tikzFmt(y);
+            return coord;
+        }
+        const coord = this.add({
+            type: 'TikZCoordinate', id: this.newId('coord'), x: tikzFmt(x), y: tikzFmt(y), name,
+            showPoint: false, pointSize: 2, color: 'black', label: '', anchor: 'above right'
+        });
+        this.coords.set(name, coord);
+        return coord;
+    }
+
+    // Name of a coordinate at this point, reusing one already there.
+    coordFor(point) {
+        if (point.name && this.coords.has(point.name)) return point.name;
+        for (const [name, coord] of this.coords) {
+            if (Math.abs(coord.x - point.x) <= TIKZ_IMPORT.tol && Math.abs(coord.y - point.y) <= TIKZ_IMPORT.tol) return name;
+        }
+        const name = this.generateCoordName();
+        this.defineCoord(name, point.x, point.y);
+        return name;
+    }
+
+    // -- colours ------------------------------------------------------------
+
+    colorHex(name) {
+        name = name.trim();
+        if (Object.hasOwn(this.customColors, name)) return this.customColors[name];
+        if (Object.hasOwn(TIKZ_COLORS, name)) return TIKZ_COLORS[name];
+        if (Object.hasOwn(TIKZ_IMPORT.xcolorExtra, name)) return TIKZ_IMPORT.xcolorExtra[name];
+        if (name.includes('!')) return this.mixHex(name);
+        return null;
+    }
+
+    // xcolor mix: c1!p!c2!q!c3 ... (a missing last colour means white).
+    mixHex(expr) {
+        const parts = expr.split('!').map(p => p.trim());
+        if (parts.length % 2 === 0) parts.push('white');
+        let rgb = TikZImporter.hexRgb(parts[0].includes('!') ? null : this.colorHex(parts[0]));
+        if (!rgb) return null;
+        for (let i = 1; i < parts.length; i += 2) {
+            const pct = Number(parts[i]) / 100;
+            const other = TikZImporter.hexRgb(this.colorHex(parts[i + 1]));
+            if (!Number.isFinite(pct) || !other) return null;
+            rgb = rgb.map((a, k) => pct * a + (1 - pct) * other[k]);
+        }
+        return '#' + rgb.map(v => Math.floor(v + 0.5).toString(16).padStart(2, '0')).join('');
+    }
+
+    static hexRgb(hex) {
+        if (!hex) return null;
+        const h = hex.replace('#', '');
+        return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+    }
+
+    // Editor colour name for a TikZ colour, registering custom colours as needed.
+    color(name) {
+        name = name.trim();
+        if (name === 'none') return 'none';
+        if (Object.hasOwn(TIKZ_COLORS, name) || Object.hasOwn(this.customColors, name)) return name;
+        const hex = this.colorHex(name);
+        if (hex === null) return null;
+        const safe = name.replace(/[^A-Za-z0-9]/g, '') || 'custom';
+        this.customColors[safe] = hex;
+        return safe;
+    }
+
+    defineColor(name, model, spec) {
+        model = model.trim();
+        const values = () => spec.split(',').map(tikzEvalNumber);
+        let rgb;
+        try {
+            if (model === 'RGB') rgb = values().map(Math.trunc);
+            else if (model === 'rgb') rgb = values().map(v => Math.round(v * 255));
+            else if (model === 'HTML') rgb = TikZImporter.hexRgb(spec.trim());
+            else if (model === 'gray') rgb = Array(3).fill(Math.round(tikzEvalNumber(spec) * 255));
+            else if (model === 'cmyk') {
+                const [c, m, y, k] = values();
+                rgb = [c, m, y].map(v => Math.round(255 * (1 - v) * (1 - k)));
+            } else {
+                this.warn(`Colour model '${model}' for '${name}' is not supported`);
+                return;
+            }
+            if (rgb.length !== 3 || rgb.some(v => !Number.isFinite(v))) throw new Error('bad colour');
+            this.customColors[name.trim()] = '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('');
+        } catch {
+            this.warn(`Could not read colour '${name}'`);
+        }
+    }
+
+    // -- options ------------------------------------------------------------
+
+    parseOptions(texts) {
+        const style = { flags: new Set() };
+        for (const text of texts) {
+            for (const part of tikzSplitTop(text)) this.applyOption(style, part);
+        }
+        return style;
+    }
+
+    tryNumber(style, key, part, read) {
+        try { style[key] = read(); } catch { this.warn(`Could not read '${part}'`); }
+    }
+
+    applyOption(style, part) {
+        // Arrow specs may contain '=' inside their tips, e.g. -{Latex[scale=1.5]}.
+        if (part.includes('-') && this.parseArrow(part)) {
+            style.arrow = part;
+            return;
+        }
+        const eq = part.indexOf('=');
+        if (eq < 0) {
+            if (TIKZ_IMPORT.lineStyles.has(part) || part in TIKZ_IMPORT.lineStyleAliases) {
+                style.lineStyle = TIKZ_IMPORT.lineStyleAliases[part] || part;
+            } else if (Object.hasOwn(TIKZ_IMPORT.thicknessPt, part)) style.thickness = part;
+            else if (part === 'semithick') style.thickness = 'thick';
+            else if (TIKZ_IMPORT.positions.includes(part)) style.position = part;
+            else if (Object.hasOwn(TIKZ_IMPORT.nodePos, part)) style.pos = TIKZ_IMPORT.nodePos[part];
+            else if (TIKZ_IMPORT.flags.has(part)) style.flags.add(part);
+            else if (part.startsWith('\\') && Object.hasOwn(TIKZ_IMPORT.fontSizes, part.slice(1))) {
+                style.fontSize = TIKZ_IMPORT.fontSizes[part.slice(1)];
+            } else if (this.parseArrow(part)) style.arrow = part;
+            else if (this.color(part) !== null) style.color = this.color(part);
+            else this.warn(`Option '${part}' is not supported and was ignored`);
+            return;
+        }
+        const key = part.slice(0, eq).trim(), value = part.slice(eq + 1).trim();
+        if (key === 'color' || key === 'draw') {
+            const color = this.color(value);
+            if (color) { style.color = color; style.flags.add('draw'); }
+        } else if (key === 'fill') {
+            const color = this.color(value);
+            if (color) style.fill = color;
+        } else if (key === 'text') {
+            const color = this.color(value);
+            if (color) style.text = color;
+        } else if (key === 'pattern') {
+            if (TIKZ_IMPORT.patterns.has(value)) style.pattern = value;
+            else this.warn(`Pattern '${value}' is not supported`);
+        } else if (key === 'pattern color') {
+            const color = this.color(value);
+            if (color) style.patternColor = color;
+        } else if (key === 'fill opacity' || key === 'opacity') {
+            this.tryNumber(style, key === 'fill opacity' ? 'fillOpacity' : 'opacity', part, () => tikzEvalNumber(value));
+        } else if (key === 'line width') {
+            this.tryNumber(style, 'thickness', part, () => {
+                const widthPt = tikzEvalLength(value, 'pt')[0] / TIKZ_IMPORT.unitCm.pt;
+                return Object.keys(TIKZ_IMPORT.thicknessPt).reduce((best, k) =>
+                    Math.abs(TIKZ_IMPORT.thicknessPt[k] - widthPt) < Math.abs(TIKZ_IMPORT.thicknessPt[best] - widthPt) ? k : best);
+            });
+        } else if (key === 'step') {
+            this.tryNumber(style, 'step', part, () => tikzEvalLength(value)[0]);
+        } else if (key === 'rotate around') {
+            const match = value.match(/^\{?\s*([^:]+):\s*\((.*)\)\s*\}?$/);
+            const center = match ? this.resolvePoint(match[2], null) : null;
+            try {
+                if (!match || !center) throw new Error(part);
+                style.rotate = tikzEvalNumber(match[1]);
+                style.rotateAbout = { x: center.x, y: center.y };
+            } catch {
+                this.warn(`Could not read '${part}'`);
+            }
+        } else if (key === 'rotate') {
+            try {
+                style.rotate = tikzEvalNumber(value.replace('--', ''));
+                if (value.startsWith('--')) style.rotate = -style.rotate;
+                style.rotateAbout = { x: 0, y: 0 };
+            } catch {
+                this.warn(`Could not read '${part}'`);
+            }
+        } else if (key === 'font') {
+            const match = value.match(new RegExp('\\\\(' + Object.keys(TIKZ_IMPORT.fontSizes).join('|') + ')\\b'));
+            if (match) style.fontSize = TIKZ_IMPORT.fontSizes[match[1]];
+        } else if (TIKZ_IMPORT.positions.includes(key)) {
+            style.position = key;
+            try { style.distance = tikzEvalLength(value, 'pt')[0] / TIKZ_IMPORT.unitCm.pt; } catch {}
+        } else if (key === 'anchor') {
+            if (Object.hasOwn(TIKZ_IMPORT.anchorPositions, value)) style.position = TIKZ_IMPORT.anchorPositions[value];
+        } else if (key === 'pos') {
+            this.tryNumber(style, 'pos', part, () => tikzEvalNumber(value));
+        } else if (key === '>') {
+            const tip = this.tipName(value.replace(/^\{|\}$/g, ''));
+            if (tip) style.defaultTip = tip[0];
+        } else if (key === 'label') {
+            style.label = value;
+        } else if (['scale', 'xscale', 'yscale', 'shift', 'xshift', 'yshift'].includes(key)) {
+            this.warn(`Transformation '${part}' on a path is not supported and was ignored`);
+        } else if (TIKZ_IMPORT.keptKeys.has(key)) {
+            style[key] = value;
+        } else {
+            this.warn(`Option '${part}' is not supported and was ignored`);
+        }
+    }
+
+    // [editor tip name, scale] for one arrow tip, or null.
+    tipName(text) {
+        text = text.trim();
+        if (text.startsWith('{') && text.endsWith('}')) text = text.slice(1, -1).trim();
+        const match = text.match(/^([^[\]]+?)\s*(?:\[(.*)\])?$/);
+        if (!match) return null;
+        const name = match[1].trim();
+        let scale = null;
+        for (const opt of tikzSplitTop(match[2] || '')) {
+            const key = opt.split('=')[0].trim(), value = opt.slice(opt.indexOf('=') + 1);
+            if (key === 'scale') { try { scale = tikzEvalNumber(value); } catch {} }
+            else if (!['', 'open', 'round', 'sep'].includes(key)) this.warn(`Arrow tip option '${opt}' is not supported`);
+            if (key === 'open') this.warn('Open arrow tips are drawn filled');
+        }
+        if (name === '<' || name === '>' || TIKZ_IMPORT.arrowTips.has(name)) return [name, scale];
+        if (Object.hasOwn(TIKZ_IMPORT.arrowAliases, name)) return [TIKZ_IMPORT.arrowAliases[name], scale];
+        return null;
+    }
+
+    // Split an arrow spec like '->' or '{Stealth[scale=2]}-Latex' into [start, end, scale].
+    parseArrow(text) {
+        if (text === '-' || text === '') return null;
+        let depth = 0, cut = null;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (ch === '{' || ch === '[') depth++;
+            else if (ch === '}' || ch === ']') depth--;
+            else if (ch === '-' && depth === 0) {
+                if (cut !== null) return null;
+                cut = i;
+            }
+        }
+        if (cut === null) return null;
+        const startText = text.slice(0, cut).trim(), endText = text.slice(cut + 1).trim();
+        const start = startText ? this.tipName(startText) : ['', null];
+        const end = endText ? this.tipName(endText) : ['', null];
+        if (!start || !end || (!start[0] && !end[0])) return null;
+        if (start[0] === '>' || end[0] === '<') return null;
+        return [start[0], end[0], start[1] || end[1]];
+    }
+
+    arrowFields(style, reverse = false) {
+        if (!style.arrow) return ['none', 1];
+        let [start, end, scale] = this.parseArrow(style.arrow);
+        if (style.defaultTip) {
+            if (start === '<') start = style.defaultTip;
+            if (end === '>') end = style.defaultTip;
+        }
+        if (reverse) {
+            // The editor draws arcs counter-clockwise, so a clockwise arc swaps its ends.
+            const flip = t => ({ '>': '<', '<': '>' }[t] ?? t);
+            [start, end] = [flip(end), flip(start)];
+        }
+        return [`${start}-${end}`, scale ? tikzFmt(scale) : 1];
+    }
+
+    // -- coordinates --------------------------------------------------------
+
+    transformed(x, y, vector = false) {
+        if (!this.transform) return [x, y];
+        const [angle, origin] = this.transform;
+        const c = Math.cos(angle * Math.PI / 180), s = Math.sin(angle * Math.PI / 180);
+        if (vector) return [x * c - y * s, x * s + y * c];
+        const dx = x - origin.x, dy = y - origin.y;
+        return [origin.x + dx * c - dy * s, origin.y + dx * s + dy * c];
+    }
+
+    // A point {x, y, name?} for a coordinate spec. Named coordinates are absolute;
+    // numeric ones follow the statement's rotation.
+    resolvePoint(spec, current, vector = false) {
+        const point = this.resolveRawPoint(spec, current);
+        if (!point || point.name) return point;
+        const [x, y] = this.transformed(point.x, point.y, vector);
+        return { x, y };
+    }
+
+    resolveRawPoint(spec, current) {
+        spec = spec.trim();
+        if (spec.startsWith('$') && spec.endsWith('$')) return this.resolveCalc(spec.slice(1, -1), current);
+        // Perpendicular coordinates: (A |- B) is (A.x, B.y); (A -| B) is (B.x, A.y).
+        const perpendicular = spec.match(/^(.+?)\s*(\|-|-\|)\s*(.+)$/);
+        if (perpendicular && !spec.includes(',')) {
+            const strip = s => s.replace(/^[()\s]+|[()\s]+$/g, '');
+            const a = this.resolvePoint(strip(perpendicular[1]), current);
+            const b = this.resolvePoint(strip(perpendicular[3]), current);
+            if (!a || !b) return null;
+            return perpendicular[2] === '|-' ? { x: a.x, y: b.y } : { x: b.x, y: a.y };
+        }
+        const named = spec.match(/^([A-Za-z_][\w']*)(?:\.[\w ]+)?$/);
+        if (named) {
+            const coord = this.coords.get(named[1]);
+            if (coord) return { x: coord.x, y: coord.y, name: named[1] };
+            this.warn(`Unknown coordinate (${named[1]})`);
+            return null;
+        }
+        try {
+            if (spec.includes(':') && !spec.includes(',')) {
+                const [angleText, radiusText] = [spec.slice(0, spec.indexOf(':')), spec.slice(spec.indexOf(':') + 1)];
+                const angle = tikzEvalNumber(angleText) * Math.PI / 180;
+                const radius = tikzEvalLength(radiusText)[0] * this.scale;
+                return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
+            }
+            const parts = tikzSplitTop(spec);
+            if (parts.length === 2) {
+                return { x: tikzEvalLength(parts[0])[0] * this.scale, y: tikzEvalLength(parts[1])[0] * this.scale };
+            }
+        } catch {}
+        this.warn(`Could not read coordinate (${spec})`);
+        return null;
+    }
+
+    // Simple calc: (A)!t!(B), and sums like (A)+(1,2) or 0.5*(A).
+    resolveCalc(expr, current) {
+        expr = expr.trim();
+        const partway = expr.match(/^\((.+?)\)\s*!\s*([^!]+?)\s*!\s*\((.+?)\)$/);
+        if (partway) {
+            const a = this.resolvePoint(partway[1], current), b = this.resolvePoint(partway[3], current);
+            let t;
+            try { t = tikzEvalNumber(partway[2]); } catch { return null; }
+            return a && b ? { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) } : null;
+        }
+        let x = 0, y = 0, found = false;
+        for (const term of expr.matchAll(/\s*([+-])?\s*(?:([\d.]+)\s*\*\s*)?\((.*?)\)/g)) {
+            found = true;
+            const sign = term[1] === '-' ? -1 : 1, factor = term[2] ? Number(term[2]) : 1;
+            const point = this.resolvePoint(term[3], current);
+            if (!point) return null;
+            x += sign * factor * point.x;
+            y += sign * factor * point.y;
+        }
+        if (found) return { x, y };
+        this.warn(`calc expression $${expr}$ is not supported`);
+        return null;
+    }
+
+    // -- path walking -------------------------------------------------------
+
+    tokenize(text) {
+        const tokens = [];
+        let i = 0;
+        while (i < text.length) {
+            const ch = text[i];
+            if (/\s/.test(ch)) i++;
+            else if (text.startsWith('++(', i) || text.startsWith('+(', i)) {
+                const rel = text.startsWith('++', i) ? '++' : '+';
+                const [inner, end] = tikzReadGroup(text, i + rel.length);
+                tokens.push(['rel', rel, inner]);
+                i = end;
+            } else if (ch === '(' || ch === '[' || ch === '{') {
+                const [inner, end] = tikzReadGroup(text, i);
+                tokens.push([{ '(': 'coord', '[': 'opts', '{': 'group' }[ch], inner]);
+                i = end;
+            } else if (['--', '..', '-|', '|-'].some(op => text.startsWith(op, i))) {
+                tokens.push(['op', text.slice(i, i + 2)]);
+                i += 2;
+            } else {
+                const match = text.slice(i).match(/^[A-Za-z]+/);
+                if (match) {
+                    tokens.push(['word', match[0]]);
+                    i += match[0].length;
+                } else {
+                    this.warn(`Unexpected '${ch}' in a path`);
+                    i++;
+                }
+            }
+        }
+        return tokens;
+    }
+
+    // Read a path, appending ['piece'|'move'|'shape'|'node', ...] events.
+    walkPath(text, style, events, state, basis = null) {
+        const tokens = this.tokenize(text);
+        const is = (index, kind, value) => tokens[index] && tokens[index][0] === kind &&
+            (value === undefined || tokens[index][1] === value);
+        let pendingNodes = [];
+        let i = 0;
+
+        // [point | 'cycle' | {point, rel}, next index]
+        const takePoint = index => {
+            const tok = tokens[index];
+            if (!tok) return [null, index];
+            if (tok[0] === 'coord') {
+                if (tok[1].trim() === 'cycle') return ['cycle', index + 1];
+                return [this.resolvePoint(tok[1], state.current), index + 1];
+            }
+            if (tok[0] === 'rel' && state.current) {
+                const delta = this.resolvePoint(tok[2], state.current, true);
+                if (!delta) return [null, index + 1];
+                const base = state.anchor || state.current;
+                return [{ point: { x: base.x + delta.x, y: base.y + delta.y }, rel: tok[1] }, index + 1];
+            }
+            if (tok[0] === 'word' && tok[1] === 'cycle') return ['cycle', index + 1];
+            return [null, index];
+        };
+        // A '+' offset does not move the reference point for later ++ offsets.
+        const settle = point => point && point.rel ? [point.point, point.rel === '++'] : [point, true];
+
+        while (i < tokens.length) {
+            const tok = tokens[i];
+            const kind = tok[0];
+            if (kind === 'coord' || kind === 'rel') {
+                let point;
+                [point, i] = takePoint(i);
+                [point] = settle(point);
+                if (!point || point === 'cycle') continue;
+                events.push(['move', point]);
+                state.current = state.anchor = state.start = point;
+                continue;
+            }
+            if (kind === 'opts') { i++; continue; }
+            if (kind === 'op' && tok[1] !== '..') {
+                i++;
+                while (is(i, 'word', 'node')) i = this.readNode(tokens, i, pendingNodes);
+                let point, moves;
+                [point, i] = takePoint(i);
+                if (point === 'cycle') {
+                    if (state.start) {
+                        events.push(['piece', { kind: 'line', to: state.start, nodes: pendingNodes, cycle: true }]);
+                        state.current = state.anchor = state.start;
+                    }
+                    pendingNodes = [];
+                    continue;
+                }
+                [point, moves] = settle(point);
+                if (!point || !state.current) { pendingNodes = []; continue; }
+                if (tok[1] !== '--') {
+                    const corner = tok[1] === '-|' ? { x: point.x, y: state.current.y } : { x: state.current.x, y: point.y };
+                    events.push(['piece', { kind: 'line', to: corner, nodes: [] }]);
+                }
+                events.push(['piece', { kind: 'line', to: point, nodes: pendingNodes }]);
+                pendingNodes = [];
+                state.current = point;
+                if (moves) state.anchor = point;
+                continue;
+            }
+            if (kind === 'op') {  // '..'
+                i++;
+                if (is(i, 'word', 'controls')) i++;
+                let c1, c2, end;
+                [c1, i] = takePoint(i);
+                [c1] = settle(c1);
+                c2 = c1;
+                if (is(i, 'word', 'and')) { [c2, i] = takePoint(i + 1); [c2] = settle(c2); }
+                if (is(i, 'op', '..')) i++;
+                [end, i] = takePoint(i);
+                end = end === 'cycle' ? state.start : settle(end)[0];
+                if (!c1 || !c2 || !end || !state.current) { this.warn('Could not read a Bezier curve'); continue; }
+                events.push(['piece', { kind: 'cubic', c1, c2, to: end, nodes: [] }]);
+                state.current = state.anchor = end;
+                continue;
+            }
+            if (kind === 'word') {
+                const word = tok[1];
+                i++;
+                if (word === 'node') {
+                    const nodes = [];
+                    i = this.readNode(tokens, i - 1, nodes);
+                    for (const node of nodes) events.push(['node', node, state.current]);
+                } else if (word === 'coordinate') {
+                    let name = null, label = null, at = state.current;
+                    if (is(i, 'opts')) { label = this.parseOptions([tokens[i][1]]).label; i++; }
+                    if (is(i, 'coord')) { name = tokens[i][1].trim(); i++; }
+                    if (is(i, 'word', 'at')) { [at, i] = takePoint(i + 1); [at] = settle(at); }
+                    if (name && at && at !== 'cycle') {
+                        const coord = this.defineCoord(name, at.x, at.y);
+                        state.current = state.anchor = { x: at.x, y: at.y, name };
+                        if (label) {
+                            // label=[options]position:text, e.g. label=above:$C$
+                            const match = label.replace(/^[{\s]+|[}\s]+$/g, '').match(/^(?:\[[^\]]*\])?\s*(?:([a-z ]+):)?(.*)$/s);
+                            const position = (match[1] || 'above').trim();
+                            coord.label = match[2].trim();
+                            coord.anchor = TIKZ_IMPORT.positions.includes(position) ? position : 'above';
+                        }
+                    }
+                } else if (word === 'arc') {
+                    i = this.readArc(tokens, i, state, events, basis);
+                } else if (word === 'circle' || word === 'ellipse') {
+                    i = this.readRound(tokens, i, word, state, events);
+                } else if (word === 'rectangle' || word === 'grid') {
+                    let corner;
+                    [corner, i] = takePoint(i);
+                    [corner] = settle(corner);
+                    if (corner && corner !== 'cycle' && state.current) {
+                        events.push(['shape', { kind: word, from: state.current, to: corner }]);
+                        state.current = state.anchor = corner;
+                    }
+                } else if (word === 'cycle') {
+                    continue;
+                } else if (word === 'to') {
+                    this.warn('"to" paths are imported as straight lines');
+                    if (is(i, 'opts')) i++;
+                    tokens.splice(i, 0, ['op', '--']);
+                } else if (['edge', 'plot', 'parabola', 'sin', 'cos', 'let', 'pic', 'child', 'decorate'].includes(word)) {
+                    this.warn(`Path operation "${word}" is not supported`);
+                    return;
+                } else {
+                    this.warn(`Unexpected word "${word}" in a path`);
+                }
+                continue;
+            }
+            if (kind === 'group') {
+                // A scoped group such as {[x={(c cm,s cm)},y={(-s cm,c cm)}] arc[...]}.
+                let inner = tok[1].trim(), innerBasis = basis;
+                i++;
+                if (inner.startsWith('[')) {
+                    const [opts, rest] = tikzReadGroup(inner, 0);
+                    innerBasis = this.readBasis(opts) || basis;
+                    inner = inner.slice(rest);
+                }
+                this.walkPath(inner, style, events, state, innerBasis);
+                continue;
+            }
+            i++;
+        }
+    }
+
+    readBasis(opts) {
+        const values = {};
+        for (const part of tikzSplitTop(opts)) {
+            const key = part.split('=')[0].trim(), value = part.slice(part.indexOf('=') + 1).trim();
+            const match = value.match(/^\{?\s*\(([^,]+),([^)]+)\)\s*\}?$/);
+            if ((key === 'x' || key === 'y') && match) {
+                try { values[key] = [tikzEvalLength(match[1])[0], tikzEvalLength(match[2])[0]]; } catch { return null; }
+            }
+        }
+        return values.x && values.y ? [values.x, values.y] : null;
+    }
+
+    // tokens[i] is 'node': read [opts] (name) at (P) {text}. Returns the next index.
+    readNode(tokens, i, out) {
+        i++;
+        const opts = [];
+        let name = null, at = null, text = null;
+        while (i < tokens.length) {
+            const tok = tokens[i];
+            if (tok[0] === 'opts') opts.push(tok[1]);
+            else if (tok[0] === 'coord' && name === null && at === null) name = tok[1].trim();
+            else if (tok[0] === 'word' && tok[1] === 'at' && tokens[i + 1] && tokens[i + 1][0] === 'coord') {
+                at = this.resolvePoint(tokens[i + 1][1], null);
+                i++;
+            } else if (tok[0] === 'group') {
+                text = tok[1];
+                i++;
+                break;
+            } else break;
+            i++;
+        }
+        out.push({ opts, name, at, text });
+        return i;
+    }
+
+    readArc(tokens, i, state, events, basis) {
+        const current = state.current;
+        const tok = tokens[i];
+        if (!current || !tok || (tok[0] !== 'opts' && tok[0] !== 'coord')) {
+            this.warn('Could not read an arc');
+            return i + 1;
+        }
+        let start, delta, rx, ry;
+        try {
+            const values = {};
+            if (tok[0] === 'opts') {
+                for (const part of tikzSplitTop(tok[1])) {
+                    values[part.split('=')[0].trim()] = part.slice(part.indexOf('=') + 1).trim();
+                }
+            } else {
+                const parts = tok[1].split(':');
+                values['start angle'] = parts[0];
+                values['end angle'] = parts[1];
+                const radii = parts[2].split(' and ');
+                values['x radius'] = radii[0];
+                values['y radius'] = radii[radii.length - 1];
+            }
+            start = tikzEvalNumber(values['start angle']);
+            delta = 'delta angle' in values ? tikzEvalNumber(values['delta angle'])
+                : tikzEvalNumber(values['end angle']) - start;
+            rx = tikzEvalLength(values['x radius'] ?? values.radius ?? '1')[0] * this.scale;
+            ry = tikzEvalLength(values['y radius'] ?? values.radius ?? '1')[0] * this.scale;
+        } catch {
+            this.warn('Could not read an arc');
+            return i + 1;
+        }
+        if (!basis && this.transform) {
+            const c = Math.cos(this.transform[0] * Math.PI / 180), s = Math.sin(this.transform[0] * Math.PI / 180);
+            basis = [[c, s], [-s, c]];
+        }
+        const [[xx, xy], [yx, yy]] = basis || [[1, 0], [0, 1]];
+        const offset = deg => {
+            const c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180);
+            return { x: rx * c * xx + ry * s * yx, y: rx * c * xy + ry * s * yy };
+        };
+        const o = offset(start), cx = current.x - o.x, cy = current.y - o.y;
+        const e = offset(start + delta), m = offset(start + delta / 2);
+        const end = { x: cx + e.x, y: cy + e.y };
+        events.push(['piece', { kind: 'arc', cx, cy, rx, ry, rotation: Math.atan2(xy, xx), start, delta,
+            from: current, mid: { x: cx + m.x, y: cy + m.y }, to: end, nodes: [] }]);
+        state.current = state.anchor = end;
+        return i + 1;
+    }
+
+    readRound(tokens, i, word, state, events) {
+        const current = state.current, tok = tokens[i];
+        if (!current || !tok || (tok[0] !== 'opts' && tok[0] !== 'coord')) {
+            this.warn(`Could not read a ${word}`);
+            return i + 1;
+        }
+        let rx, ry, unit;
+        try {
+            let rxText, ryText;
+            if (tok[0] === 'opts') {
+                const values = {};
+                for (const part of tikzSplitTop(tok[1])) {
+                    values[part.split('=')[0].trim()] = part.slice(part.indexOf('=') + 1).trim();
+                }
+                rxText = values['x radius'] ?? values.radius;
+                ryText = values['y radius'] ?? values.radius;
+            } else {
+                const radii = tok[1].split(' and ');
+                [rxText, ryText] = [radii[0], radii[radii.length - 1]];
+            }
+            [rx, unit] = tikzEvalLength(rxText);
+            ry = tikzEvalLength(ryText)[0];
+        } catch {
+            this.warn(`Could not read a ${word}`);
+            return i + 1;
+        }
+        events.push(['shape', { kind: 'round', center: current, rx: rx * this.scale, ry: ry * this.scale, unit, raw: rx }]);
+        return i + 1;
+    }
+
+    // -- statements ---------------------------------------------------------
+
+    convert(body, pictureOptions = '') {
+        for (const part of tikzSplitTop(pictureOptions)) {
+            if (part.split('=')[0].trim() === 'scale') {
+                try { this.scale = tikzEvalNumber(part.slice(part.indexOf('=') + 1)); } catch {}
+            } else {
+                this.warn(`tikzpicture option '${part}' was ignored`);
+            }
+        }
+        // Drop macro definitions before expanding, or \pgfmathsetmacro{\w} would become {6}.
+        body = tikzExpandMacros(tikzRemoveMacroDefinitions(tikzStripComments(body)), this.macros);
+        body = this.takePreambleCommands(body);
+        this.reserved = new Set([...body.matchAll(/\(\s*([A-Za-z_][\w']*)\s*(?:\.[\w ]+)?\)/g)].map(m => m[1]));
+        for (const statement of tikzSplitStatements(body)) this.convertStatement(statement);
+        this.finishRegions();
+        this.pairCircleFoci();
+        return this.toProject();
+    }
+
+    // Handle and remove commands that do not end with a semicolon.
+    takePreambleCommands(body) {
+        body = body.replace(/\\definecolor\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g, (_, name, model, spec) => {
+            this.defineColor(name, model, spec);
+            return ' ';
+        });
+        body = body.replace(/\\colorlet\s*\{([^}]*)\}\s*\{([^}]*)\}/g, (_, name, base) => {
+            const hex = this.colorHex(base);
+            if (hex) this.customColors[name.trim()] = hex;
+            else this.warn(`Could not read colour '${base}'`);
+            return ' ';
+        });
+        body = body.replace(/\\begin\{scope\}\s*(?:\[([^\]]*)\])?/g, (_, opts) => {
+            if (opts && /shift|rotate|scale|xslant|yslant/.test(opts)) this.warn(`Scope transformation [${opts}] is not supported`);
+            return ' ';
+        });
+        body = body.replace(/\\end\{scope\}/g, ' ');
+        body = body.replace(/\\(?:usetikzlibrary|usepackage|tikzset)\s*\{[^}]*\}/g, ' ');
+        if (/\\foreach\b/.test(body)) this.warn('\\foreach loops are not supported');
+        return body;
+    }
+
+    convertStatement(statement) {
+        const match = statement.match(/^\\([A-Za-z]+)/);
+        if (!match) {
+            this.warn(`Skipped: ${statement.slice(0, 40)}`);
+            return;
+        }
+        let cmd = match[1], rest = statement.slice(match[0].length);
+        if (cmd === 'node' || cmd === 'coordinate') {
+            rest = cmd + rest;
+            cmd = 'path';
+        } else if (!['draw', 'filldraw', 'fill', 'path', 'clip', 'shade', 'shadedraw'].includes(cmd)) {
+            if (cmd !== 'foreach') this.warn(`\\${cmd} is not supported`);
+            return;
+        }
+        if (['clip', 'shade', 'shadedraw'].includes(cmd)) {
+            this.warn(cmd === 'clip' ? '\\clip is not supported' : `\\${cmd} is not supported; drawn as a plain path`);
+            if (cmd === 'clip') return;
+            cmd = cmd === 'shadedraw' ? 'filldraw' : 'fill';
+        }
+        const optionTexts = [];
+        rest = rest.trimStart();
+        while (rest.startsWith('[')) {
+            const [inner, end] = tikzReadGroup(rest, 0);
+            optionTexts.push(inner);
+            rest = rest.slice(end).trimStart();
+        }
+        const style = this.parseOptions(optionTexts);
+        const stroke = cmd === 'draw' || cmd === 'filldraw' || style.flags.has('draw');
+        const filled = cmd === 'fill' || cmd === 'filldraw' || 'fill' in style || style.flags.has('fill');
+        const events = [], state = { current: null, start: null, anchor: null };
+        this.transform = style.rotate ? [style.rotate, style.rotateAbout] : null;
+        try {
+            this.walkPath(rest, style, events, state);
+            this.build(events, style, stroke, filled, cmd);
+        } finally {
+            this.transform = null;
+        }
+    }
+
+    // -- building objects ---------------------------------------------------
+
+    strokeFields(style) {
+        return { color: style.color || 'black', thickness: style.thickness || 'thin', lineStyle: style.lineStyle || 'solid' };
+    }
+
+    fillFields(style, filled) {
+        let fill = style.patternColor || style.fill || null;
+        if (!fill && filled) fill = style.color || 'black';
+        const pattern = style.pattern || 'none';
+        if (pattern !== 'none' && !fill) fill = 'black';
+        return {
+            fill: fill && (filled || pattern !== 'none') ? fill : 'none',
+            fillOpacity: tikzFmt(style.fillOpacity ?? 1),
+            pattern
+        };
+    }
+
+    build(events, style, stroke, filled, cmd) {
+        const subpaths = [], nodesAt = [];
+        let current = null;
+        for (const event of events) {
+            if (event[0] === 'move') {
+                current = { start: event[1], pieces: [], closed: false };
+                subpaths.push(current);
+            } else if (event[0] === 'piece') {
+                if (!current) continue;
+                const piece = event[1];
+                if (piece.cycle) {
+                    current.closed = true;
+                    const last = current.pieces.length ? current.pieces[current.pieces.length - 1].to : current.start;
+                    if (tikzDist(last, current.start) <= TIKZ_IMPORT.tol && !piece.nodes.length) continue;
+                }
+                current.pieces.push(piece);
+            } else if (event[0] === 'shape') {
+                this.buildShape(event[1], style, stroke, filled);
+            } else if (event[0] === 'node') {
+                if (!this.nodeOnPreviousPiece(event[1], current)) nodesAt.push([event[1], event[2]]);
+            }
+        }
+
+        const drawn = subpaths.filter(sp => sp.pieces.length);
+        if (drawn.length && (stroke || filled)) {
+            const region = (cmd === 'fill' && !stroke) || drawn.length > 1 || style.flags.has('even odd rule') ||
+                drawn.some(sp => sp.closed && sp.pieces.some(p => p.kind === 'arc'));
+            const pieces = drawn[0].pieces;
+            const singleBezier = drawn.length === 1 && pieces[0].kind === 'cubic' &&
+                pieces.slice(1).every(p => p.kind === 'line') && pieces.length <= 2 &&
+                (pieces.length === 1 || drawn[0].closed);
+            if (region && !(singleBezier && cmd !== 'fill')) this.buildRegion(drawn, style, stroke, filled);
+            else for (const sp of drawn) this.buildSubpath(sp, style, filled);
+        }
+        for (const [node, at] of nodesAt) this.buildNode(node, at);
+    }
+
+    // A node after a point with pos/midway refers to the previous line piece.
+    nodeOnPreviousPiece(node, subpath) {
+        const style = this.parseOptions(node.opts);
+        if (!subpath || !subpath.pieces.length || node.at) return false;
+        if (!('pos' in style) && !style.flags.has('midway')) return false;
+        const piece = subpath.pieces[subpath.pieces.length - 1];
+        if (piece.kind !== 'line') return false;
+        piece.nodes.push(node);
+        return true;
+    }
+
+    embeddedNode(node, segmentIndex = null) {
+        const style = this.parseOptions(node.opts);
+        const result = {
+            text: (node.text || '').trim(),
+            position: tikzFmt(style.pos ?? 0.5),
+            anchor: style.position || 'above',
+            fontSize: style.fontSize || 'normal',
+            color: style.text || style.color || '',
+            sloped: style.flags.has('sloped'),
+            rotation: tikzFmt(-(style.rotate || 0))
+        };
+        if (segmentIndex !== null) result.segmentIndex = segmentIndex;
+        return result;
+    }
+
+    buildSubpath(sp, style, filled) {
+        const pieces = sp.pieces;
+        const stroke = this.strokeFields(style);
+        if (pieces.every(p => p.kind === 'line')) {
+            let names = [this.coordFor(sp.start), ...pieces.map(p => this.coordFor(p.to))];
+            if (pieces.length === 1 && !sp.closed) {
+                const [arrowEnd, arrowSize] = this.arrowFields(style);
+                this.add({ type: 'TikZSegment', id: this.newId('line'), from: names[0], to: names[1], ...stroke,
+                    arrowEnd, arrowSize, nodes: pieces[0].nodes.map(n => this.embeddedNode(n)) });
+                return;
+            }
+            if (sp.closed) names = names.slice(0, -1);
+            if (style.arrow) this.warn('Arrows on multi-point paths are not supported');
+            const nodes = pieces.flatMap((p, index) => p.nodes.map(n => this.embeddedNode(n, index)));
+            this.add({ type: 'TikZPath', id: this.newId('path'), points: names, closed: sp.closed, ...stroke,
+                ...this.fillFields(style, filled), nodes });
+            return;
+        }
+        if (pieces[0].kind === 'cubic' && (pieces.length === 1 || (pieces.length === 2 && sp.closed))) {
+            const piece = pieces[0], closed = sp.closed;
+            const [arrowEnd, arrowSize] = this.arrowFields(style);
+            this.add({ type: 'TikZBezier', id: this.newId('bezier'), from: this.coordFor(sp.start),
+                control1: this.coordFor(piece.c1), control2: this.coordFor(piece.c2), to: this.coordFor(piece.to),
+                closed, ...stroke, arrowEnd: closed ? 'none' : arrowEnd, arrowSize,
+                ...(closed ? this.fillFields(style, filled) : { fill: 'none', fillOpacity: 1, pattern: 'none' }) });
+            return;
+        }
+        if (pieces.length === 1 && pieces[0].kind === 'arc') {
+            this.buildArc(pieces[0], style);
+            return;
+        }
+        // Mixed path: one object per piece; arrows go on the outer ends.
+        let start = sp.start;
+        pieces.forEach((piece, index) => {
+            const pieceStyle = { ...style };
+            if (style.arrow && pieces.length > 1) {
+                const [headTip, tailTip, scale] = this.parseArrow(style.arrow);
+                const head = index === 0 ? headTip : '', tail = index === pieces.length - 1 ? tailTip : '';
+                const scaled = tip => tip && scale ? `{${tip}[scale=${scale}]}` : tip;
+                if (head || tail) pieceStyle.arrow = `${scaled(head)}-${scaled(tail)}`;
+                else delete pieceStyle.arrow;
+            }
+            this.buildSubpath({ start, pieces: [piece], closed: false }, pieceStyle, false);
+            start = piece.to;
+        });
+    }
+
+    buildArc(piece, style) {
+        if (Math.abs(piece.rx - piece.ry) > TIKZ_IMPORT.tol) {
+            this.warn('Elliptical arcs outside a fill are not supported');
+            return;
+        }
+        // A rotated circular arc is the same arc with its angles turned.
+        let start = piece.start + piece.rotation * 180 / Math.PI, delta = piece.delta;
+        const reverse = delta < 0;
+        if (reverse) [start, delta] = [start + delta, -delta];
+        const [arrowEnd, arrowSize] = this.arrowFields(style, reverse);
+        const center = this.coordFor({ x: piece.cx, y: piece.cy });  // before the arc's id, as in Python
+        this.add({ type: 'TikZArc', id: this.newId('arc'), center,
+            radius: tikzFmt(piece.rx), startAngle: tikzFmt(start), endAngle: tikzFmt(start + delta),
+            ...this.strokeFields(style), arrowEnd, arrowSize });
+    }
+
+    buildShape(shape, style, stroke, filled) {
+        if (shape.kind === 'round') {
+            const center = shape.center;
+            // \fill (A) circle (2pt) marks a point.
+            if (shape.unit === 'pt' && filled && Math.abs(shape.rx - shape.ry) < 1e-12) {
+                const coord = this.coords.get(this.coordFor(center));
+                coord.showPoint = true;
+                coord.pointSize = tikzFmt(shape.raw / TIKZ_IMPORT.unitCm.pt);
+                coord.color = style.fill || style.color || 'black';
+                return;
+            }
+            let a = shape.rx, b = shape.ry, rotation = (style.rotate || 0) * Math.PI / 180;
+            if (b > a) [a, b, rotation] = [b, a, rotation + Math.PI / 2];
+            const fields = { ...this.strokeFields(style), ...this.fillFields(style, filled) };
+            if (!stroke) fields.color = fields.fill !== 'none' ? fields.fill : 'black';
+            if (a - b <= TIKZ_IMPORT.tol) {
+                const name = this.coordFor(center);
+                this.add({ type: 'TikZCircle', id: this.newId('circle'), center: name, center2: name, radius: tikzFmt(a), ...fields });
+                return;
+            }
+            const c = Math.sqrt(a * a - b * b), ux = Math.cos(rotation), uy = Math.sin(rotation);
+            const f1 = this.coordFor({ x: center.x - c * ux, y: center.y - c * uy });
+            const f2 = this.coordFor({ x: center.x + c * ux, y: center.y + c * uy });
+            this.add({ type: 'TikZCircle', id: this.newId('circle'), center: f1, center2: f2, radius: tikzFmt(a), ...fields });
+            return;
+        }
+        // Corners already carry the rotation; undo it about their midpoint to get the bounds.
+        const p = shape.from, q = shape.to;
+        const angle = (style.rotate || 0) * Math.PI / 180;
+        const cx = (p.x + q.x) / 2, cy = (p.y + q.y) / 2, dx = q.x - p.x, dy = q.y - p.y;
+        const w = Math.abs(dx * Math.cos(angle) + dy * Math.sin(angle));
+        const h = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
+        const bounds = { xMin: tikzFmt(cx - w / 2), yMin: tikzFmt(cy - h / 2), xMax: tikzFmt(cx + w / 2), yMax: tikzFmt(cy + h / 2) };
+        if (shape.kind === 'grid') {
+            this.add({ type: 'TikZGrid', id: this.newId('grid'), ...bounds, step: tikzFmt(style.step ?? 1),
+                color: style.color || 'lightgray', thickness: style.thickness || 'very thin', rotation: tikzFmt(style.rotate || 0) });
+            return;
+        }
+        const fields = { ...this.strokeFields(style), ...this.fillFields(style, filled) };
+        if (!stroke) fields.color = fields.fill !== 'none' ? fields.fill : 'black';
+        this.add({ type: 'TikZRectangle', id: this.newId('rect'), ...bounds, ...fields, rotation: tikzFmt(style.rotate || 0) });
+    }
+
+    buildNode(node, at) {
+        const style = this.parseOptions(node.opts);
+        let point = node.at || at;
+        const text = (node.text || '').trim();
+        if (!point) return;
+        if (node.name && !point.name) {
+            // A named node also defines a coordinate.
+            this.defineCoord(node.name, point.x, point.y);
+            point = { x: point.x, y: point.y, name: node.name };
+        }
+        if (style.flags.has('draw') && text) this.warn('Node borders (\\node[draw]) are not supported; the text is kept');
+        if (style.flags.has('circle') && (style.flags.has('fill') || 'fill' in style) && !text) {
+            const coord = this.coords.get(this.coordFor(point));
+            coord.showPoint = true;
+            coord.color = style.fill || style.color || 'black';
+            return;
+        }
+        const image = text.match(/\\includegraphics\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}/);
+        if (image) {
+            this.buildImage(image, style, point);
+            return;
+        }
+        if (!text) return;
+        const anchor = this.coordFor(point);
+        const coord = this.coords.get(anchor);
+        const parts = tikzSplitTop(node.opts.join(' , '));
+        // The editor writes a point's own label as \node[<position>, <colour>] at (A) {...}.
+        if (parts.length === 2 && TIKZ_IMPORT.positions.includes(parts[0]) && !parts[1].includes('=') &&
+                this.color(parts[1]) !== null && !coord.label) {
+            coord.label = text;
+            coord.anchor = parts[0];
+            coord.color = this.color(parts[1]);
+            return;
+        }
+        this.add({ type: 'TikZLabel', id: this.newId('label'), at: anchor, text,
+            position: style.position || 'above', distance: tikzFmt(style.distance || 0),
+            fontSize: style.fontSize || 'normal', color: style.text || style.color || 'black',
+            rotation: tikzFmt(-(style.rotate || 0)) });
+    }
+
+    buildImage(match, style, point) {
+        let width = 4, height = null, rotation = 0;
+        for (const part of tikzSplitTop(match[1] || '')) {
+            const key = part.split('=')[0].trim(), value = part.slice(part.indexOf('=') + 1);
+            try {
+                if (key === 'width') width = tikzEvalLength(value)[0];
+                else if (key === 'height') height = tikzEvalLength(value)[0];
+                else if (key === 'angle') {
+                    rotation = -tikzEvalNumber(value.replace('--', ''));
+                    if (value.trim().startsWith('--')) rotation = -rotation;
+                }
+            } catch {
+                this.warn(`Could not read image option '${part}'`);
+            }
+        }
+        const filename = match[2].trim();
+        const base = filename.split('/').pop();
+        const stem = base.replace(/\.[^.]*$/, '');
+        // Files the user chose alongside the TikZ, matched by name (with or without extension).
+        const chosen = Object.keys(this.images).find(name => name === base) ||
+            Object.keys(this.images).find(name => name.replace(/\.[^.]*$/, '') === stem && !/\.[^.]*$/.test(base));
+        const extension = (chosen || base).match(/\.[^.]*$/)?.[0]?.toLowerCase() || '';
+        const imageData = chosen ? this.images[chosen] : null;
+        const size = imageData ? tikzImageSize(imageData) : null;
+        if (!imageData) this.warn(`Image file '${filename}' was not provided; the image will be empty`);
+        this.add({ type: 'TikZImage', id: this.newId('image'), at: this.coordFor(point), imageData, filename,
+            mimeType: TIKZ_IMPORT.imageTypes[extension] || 'image/png', width: tikzFmt(width),
+            height: height ? tikzFmt(height) : null, opacity: tikzFmt(style.opacity ?? 1), anchor: 'center',
+            rotation: tikzFmt(rotation), naturalAspect: size ? size[0] / size[1] : 1 });
+    }
+
+    // -- fills --------------------------------------------------------------
+
+    buildRegion(subpaths, style, stroke, filled) {
+        // The editor writes a fill before the shapes that bound it (so it sits underneath
+        // them). Match it once the whole picture is read, then put it back in this place.
+        const marker = { type: '_pendingRegion' };
+        this.objects.push(marker);
+        this.pendingRegions.push([marker, subpaths, style, stroke, filled]);
+    }
+
+    finishRegions() {
+        for (const [marker, subpaths, style, stroke, filled] of this.pendingRegions) {
+            const index = this.objects.indexOf(marker);
+            this.objects.splice(index, 1);
+            const count = this.objects.length;
+            this.makeRegion(subpaths, style, stroke, filled);
+            // Move the new region into place; any new corner points stay at the end.
+            if (this.objects.length > count && this.objects[this.objects.length - 1].type === 'TikZRegion') {
+                this.objects.splice(index, 0, this.objects.pop());
+            }
+        }
+        this.pendingRegions = [];
+    }
+
+    makeRegion(subpaths, style, stroke, filled) {
+        const rings = subpaths.map(sp => {
+            const pieces = [...sp.pieces];
+            if (tikzDist(pieces[pieces.length - 1].to, sp.start) > TIKZ_IMPORT.tol) {
+                pieces.push({ kind: 'line', to: sp.start, nodes: [] });
+            }
+            return { start: sp.start, pieces };
+        });
+        const fill = this.fillFields(style, filled);
+        const fields = {
+            fill: fill.fill, fillOpacity: fill.fillOpacity, pattern: fill.pattern,
+            color: stroke ? style.color || 'black' : 'none',
+            thickness: style.thickness || 'thin', lineStyle: style.lineStyle || 'solid'
+        };
+        if (fields.fill === 'none' && !stroke) return;
+        const straight = rings.every(r => r.pieces.every(p => p.kind === 'line'));
+        if (straight) {
+            const loops = this.legacyLoops(rings, false);
+            if (loops) return this.add({ type: 'TikZRegion', id: this.newId('region'), loops, ...fields });
+        }
+        const curveLoops = this.curveLoops(rings);
+        if (curveLoops) return this.add({ type: 'TikZRegion', id: this.newId('region'), loops: [], curveLoops, ...fields });
+        if (straight) {
+            const loops = this.legacyLoops(rings, true);
+            if (loops) return this.add({ type: 'TikZRegion', id: this.newId('region'), loops, ...fields });
+        }
+        this.warn('A curved fill does not follow the imported shapes and was skipped');
+    }
+
+    // {cross: [...]} when the point is where two imported segments cross.
+    segmentCross(point) {
+        const segments = this.objects.filter(o => o.type === 'TikZSegment' || o.type === 'TikZVector');
+        for (let i = 0; i < segments.length; i++) {
+            for (const t of segments.slice(i + 1)) {
+                const s = segments[i];
+                const [a, b, c, d] = [s.from, s.to, t.from, t.to].map(n => this.coords.get(n));
+                const hit = tikzSegmentIntersection(a, b, c, d);
+                if (hit && tikzDist(hit, point) <= TIKZ_IMPORT.tol) {
+                    let first = [s.from, s.to].sort(), second = [t.from, t.to].sort();
+                    if (JSON.stringify(first) > JSON.stringify(second)) [first, second] = [second, first];
+                    return { cross: [...first, ...second] };
+                }
+            }
+        }
+        return null;
+    }
+
+    legacyLoops(rings, allowNew) {
+        const loops = [];
+        for (const ring of rings) {
+            const vertices = [ring.start, ...ring.pieces.slice(0, -1).map(p => p.to)];
+            const loop = [];
+            for (const vertex of vertices) {
+                if (vertex.name && this.coords.has(vertex.name)) { loop.push(vertex.name); continue; }
+                const cross = this.segmentCross(vertex);
+                if (cross) loop.push(cross);
+                else if (allowNew) loop.push(this.coordFor(vertex));
+                else return null;
+            }
+            if (loop.length < 3) return null;
+            loops.push(loop);
+        }
+        return loops;
+    }
+
+    *fillSources() {
+        for (const obj of this.objects) {
+            const prims = this.primitivesFor(obj);
+            for (let part = 0; part < prims.length; part++) yield [obj, part, prims[part]];
+        }
+    }
+
+    // The editor's fillPrimitivesFor(), on imported (plain) objects.
+    primitivesFor(obj) {
+        const xy = name => this.coords.get(name) || null;
+        const polyline = (points, closed) => {
+            if (points.length < 2 || points.includes(null)) return [];
+            const edges = points.slice(1).map((p, i) => ({ kind: 'line', p0: points[i], p1: p }));
+            if (closed) edges.push({ kind: 'line', p0: points[points.length - 1], p1: points[0] });
+            return edges;
+        };
+        const arc = (cx, cy, rx, ry, rotation, start, sweep) =>
+            rx > 0 && ry > 0 && sweep ? [{ kind: 'arc', cx, cy, rx, ry, rotation, start, sweep }] : [];
+        switch (obj.type) {
+            case 'TikZSegment':
+            case 'TikZVector':
+                return polyline([xy(obj.from), xy(obj.to)], false);
+            case 'TikZPath':
+                return polyline(obj.points.map(xy), obj.closed);
+            case 'TikZBezier': {
+                const pts = [obj.from, obj.control1, obj.control2, obj.to].map(xy);
+                if (pts.includes(null)) return [];
+                const prims = [{ kind: 'cubic', p0: pts[0], p1: pts[1], p2: pts[2], p3: pts[3] }];
+                if (obj.closed && (pts[0].x !== pts[3].x || pts[0].y !== pts[3].y)) {
+                    prims.push({ kind: 'line', p0: pts[3], p1: pts[0] });
+                }
+                return prims;
+            }
+            case 'TikZCircle': {
+                const c1 = xy(obj.center), c2 = xy(obj.center2);
+                if (!c1 || !c2) return [];
+                if (obj.center !== obj.center2 && tikzDist(c1, c2) > 0.001) {
+                    const half = tikzDist(c1, c2) / 2, a = obj.radius;
+                    const b = half >= a ? 0.1 : Math.sqrt(a * a - half * half);
+                    return arc((c1.x + c2.x) / 2, (c1.y + c2.y) / 2, a, b, Math.atan2(c2.y - c1.y, c2.x - c1.x), 0, 2 * Math.PI);
+                }
+                return arc(c1.x, c1.y, obj.radius, obj.radius, 0, 0, 2 * Math.PI);
+            }
+            case 'TikZArc': {
+                const c = xy(obj.center);
+                return c ? arc(c.x, c.y, obj.radius, obj.radius, 0, obj.startAngle * Math.PI / 180,
+                    fillArcSweep(obj.startAngle, obj.endAngle)) : [];
+            }
+            case 'TikZRectangle': {
+                const cx = (obj.xMin + obj.xMax) / 2, cy = (obj.yMin + obj.yMax) / 2;
+                const angle = (obj.rotation || 0) * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+                return polyline([[obj.xMin, obj.yMin], [obj.xMax, obj.yMin], [obj.xMax, obj.yMax], [obj.xMin, obj.yMax]]
+                    .map(([x, y]) => ({ x: cx + (x - cx) * cos - (y - cy) * sin, y: cy + (x - cx) * sin + (y - cy) * cos })), true);
+            }
+            default:
+                return [];
+        }
+    }
+
+    // Start, middle and end points of a fill piece.
+    pieceSamples(start, piece) {
+        if (piece.kind === 'line') {
+            const end = piece.to;
+            return [start, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, end];
+        }
+        if (piece.kind === 'cubic') {
+            const p = { kind: 'cubic', p0: start, p1: piece.c1, p2: piece.c2, p3: piece.to };
+            return [start, fillPrimitivePoint(p, 0.5), piece.to];
+        }
+        return [start, piece.mid, piece.to];
+    }
+
+    // Match each piece of each ring to a span of an imported object's primitive.
+    curveLoops(rings) {
+        const loops = [];
+        for (const ring of rings) {
+            const runs = [];
+            let start = ring.start;
+            for (const piece of ring.pieces) {
+                if (piece.kind === 'line' && tikzDist(start, piece.to) <= TIKZ_IMPORT.tol) {
+                    start = piece.to;
+                    continue;
+                }
+                const run = this.matchPiece(start, piece);
+                if (!run) return null;
+                runs.push(...run);
+                start = piece.to;
+            }
+            if (!runs.length) return null;
+            loops.push(runs);
+        }
+        return loops;
+    }
+
+    matchPiece(start, piece) {
+        const [a, mid, b] = this.pieceSamples(start, piece);
+        for (const [obj, part, prim] of this.fillSources()) {
+            if (prim.kind !== piece.kind) continue;
+            const [t0, d0] = tikzPrimParam(prim, a), [t1, d1] = tikzPrimParam(prim, b), [tm, dm] = tikzPrimParam(prim, mid);
+            if (Math.max(d0, d1, dm) > 5 * TIKZ_IMPORT.tol) continue;
+            const periodic = prim.kind === 'arc' && Math.abs(prim.sweep - 2 * Math.PI) < 1e-9;
+            if (periodic) {
+                const spans = TikZImporter.periodicSpans(t0, tm, t1, piece);
+                if (!spans) continue;
+                return spans.map(([s, e]) => ({ objectId: obj.id, part, t0: tikzFmt(s), t1: tikzFmt(e) }));
+            }
+            if (tm < Math.min(t0, t1) - 1e-6 || tm > Math.max(t0, t1) + 1e-6) continue;
+            return [{ objectId: obj.id, part, t0: tikzFmt(t0), t1: tikzFmt(t1) }];
+        }
+        return null;
+    }
+
+    // Parameter spans on a closed ellipse; split at its seam (t = 0 = 1) if crossed.
+    static periodicSpans(t0, tm, t1, piece) {
+        const mod1 = v => ((v % 1) + 1) % 1;
+        const forward = piece.kind === 'arc' ? piece.delta > 0 : mod1(tm - t0) < mod1(t1 - t0);
+        if (forward) {
+            if (t1 <= t0 + 1e-9) t1 += 1;
+            if (t1 - 1 > 1e-9 && t0 < 1) {
+                if (t1 > 2) return null;
+                return t1 - 1 > 1e-9 ? [[t0, 1], [0, t1 - 1]] : [[t0, 1]];
+            }
+            return [[t0, Math.min(t1, 1)]];
+        }
+        if (t0 <= t1 + 1e-9) t0 += 1;
+        if (t0 - 1 > 1e-9) return t1 < 1 - 1e-9 ? [[t0 - 1, 0], [1, t1]] : [[t0 - 1, 0]];
+        return [[t0, t1]];
+    }
+
+    referencedNames() {
+        const names = new Set();
+        for (const obj of this.objects) {
+            for (const key of ['from', 'to', 'center', 'center2', 'control1', 'control2', 'at']) {
+                if (typeof obj[key] === 'string') names.add(obj[key]);
+            }
+            (obj.points || []).forEach(n => names.add(n));
+            for (const loop of obj.loops || []) {
+                for (const vertex of loop) (typeof vertex === 'string' ? [vertex] : vertex.cross).forEach(n => names.add(n));
+            }
+        }
+        return names;
+    }
+
+    // The editor gives each circle a second, coincident focus so it can become an
+    // ellipse. A circle is exported with its centre only, so reuse an otherwise unused
+    // coordinate at the same place as that second focus.
+    pairCircleFoci() {
+        const used = this.referencedNames();
+        for (const obj of this.objects) {
+            if (obj.type !== 'TikZCircle' || obj.center !== obj.center2) continue;
+            const center = this.coords.get(obj.center);
+            for (const [name, coord] of this.coords) {
+                if (!used.has(name) && !coord.showPoint && !coord.label &&
+                        Math.abs(coord.x - center.x) <= TIKZ_IMPORT.tol && Math.abs(coord.y - center.y) <= TIKZ_IMPORT.tol) {
+                    obj.center2 = name;
+                    used.add(name);
+                    break;
+                }
+            }
+        }
+    }
+
+    // -- output -------------------------------------------------------------
+
+    toProject() {
+        const objects = this.objects.filter(o => o.type !== '_pendingRegion');
+        const xs = [], ys = [];
+        for (const obj of objects) {
+            if (obj.type === 'TikZCoordinate') { xs.push(obj.x); ys.push(obj.y); }
+            else if ('xMin' in obj) { xs.push(obj.xMin, obj.xMax); ys.push(obj.yMin, obj.yMax); }
+        }
+        let zoom = 50, viewX = 400, viewY = 400;
+        if (xs.length) {
+            const width = Math.max(...xs) - Math.min(...xs) || 1, height = Math.max(...ys) - Math.min(...ys) || 1;
+            // Fit the drawing to a typical canvas (about 640 x 560 px beside the panels).
+            zoom = Math.max(10, Math.min(100, 560 / width, 480 / height));
+            const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+            viewX = 330 - cx * zoom;
+            viewY = 300 + cy * zoom;
+        }
+        const round2 = v => Math.round(v * 100) / 100;
+        return { version: '1.0', viewX: round2(viewX), viewY: round2(viewY), zoom: round2(zoom),
+            customColors: this.customColors, objects };
+    }
+}
+
+// [{options, body}] for every tikzpicture environment.
+function tikzExtractPictures(tex) {
+    const pictures = [];
+    const pattern = /\\begin\{tikzpicture\}\s*(\[)?/g;
+    let match;
+    while ((match = pattern.exec(tex))) {
+        let start = match.index + match[0].length, options = '';
+        if (match[1]) [options, start] = tikzReadGroup(tex, start - 1);
+        const end = tex.indexOf('\\end{tikzpicture}', start);
+        if (end < 0) break;
+        pictures.push({ options, body: tex.slice(start, end) });
+        pattern.lastIndex = end;
+    }
+    return pictures;
+}
+
+// Convert TikZ (a whole .tex file, or just picture commands) into tikz-draw projects:
+// [{project, warnings}], one per tikzpicture. `images` maps file names to data URLs.
+function importTikZ(tex, images = {}) {
+    const clean = tikzStripComments(tex);
+    const macros = tikzCollectMacros(clean);
+    let pictures = tikzExtractPictures(clean);
+    let preamble = clean.slice(0, Math.max(0, clean.indexOf('\\begin{tikzpicture}')));
+    // Pasted commands without the environment around them.
+    if (!pictures.length && /\\(draw|fill|filldraw|node|coordinate|path)\b/.test(clean)) {
+        pictures = [{ options: '', body: clean }];
+        preamble = '';
+    }
+    const colors = new TikZImporter();
+    colors.takePreambleCommands(preamble);
+    return pictures.map(({ options, body }) => {
+        const importer = new TikZImporter(images, macros, colors.customColors);
+        let project;
+        try {
+            project = importer.convert(body, options);
+        } catch (err) {  // Report, but keep the objects converted so far.
+            importer.warn(`Conversion stopped early: ${err.message}`);
+            project = importer.toProject();
+        }
+        return { project, warnings: importer.warnings };
+    });
 }
 
 class TikZDrawApp {
@@ -4281,6 +5951,10 @@ class TikZDrawApp {
 
         // Escape
         if (e.key === 'Escape') {
+            if (document.getElementById('importModal').classList.contains('visible')) {
+                this.closeImport();
+                return;
+            }
             if (this.cancelDrawing()) return;
             this.selectedObjects = [];
             this.updatePropertiesPanel();
@@ -8505,6 +10179,128 @@ class TikZDrawApp {
         a.download = 'tikz-drawing.tex';
         a.click();
         URL.revokeObjectURL(url);
+    }
+
+    // ========================================================================
+    // TikZ import (see importTikZ)
+    // ========================================================================
+
+    showImport() {
+        if (!this.importImages) {
+            this.importImages = {};  // file name -> data URL, for \includegraphics
+            document.getElementById('importFile').addEventListener('change', e => this.readImportFile(e.target));
+            document.getElementById('importImages').addEventListener('change', e => this.readImportImages(e.target));
+            document.getElementById('importCode').addEventListener('input', () => {
+                this.resetImportResult();
+                this.updateImportPictures();
+            });
+        }
+        this.resetImportResult();
+        this.updateImportPictures();
+        document.getElementById('importModal').classList.add('visible');
+        document.getElementById('importCode').focus();
+    }
+
+    closeImport() {
+        document.getElementById('importModal').classList.remove('visible');
+    }
+
+    resetImportResult() {
+        document.getElementById('importWarnings').hidden = true;
+        document.getElementById('importBtn').hidden = false;
+        document.getElementById('importCancelBtn').textContent = 'Cancel';
+    }
+
+    readImportFile(input) {
+        const file = input.files[0];
+        input.value = '';  // Allow choosing the same file again.
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            document.getElementById('importCode').value = reader.result;
+            this.importFilename = file.name.replace(/\.[^.]*$/, '') + '.json';
+            this.resetImportResult();
+            this.updateImportPictures();
+        };
+        reader.onerror = () => this.showToast(`Could not read ${file.name}`, 'error');
+        reader.readAsText(file);
+    }
+
+    readImportImages(input) {
+        const files = [...input.files];
+        input.value = '';
+        Promise.all(files.map(file => new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve([file.name, reader.result]);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        }))).then(entries => {
+            for (const entry of entries) if (entry) this.importImages[entry[0]] = entry[1];
+            this.updateImportPictures();
+        });
+    }
+
+    // Offer a choice when the text holds several tikzpictures.
+    updateImportPictures() {
+        const select = document.getElementById('importPicture');
+        let count = 0;
+        try {
+            count = tikzExtractPictures(tikzStripComments(document.getElementById('importCode').value)).length;
+        } catch { /* unbalanced options: reported on import */ }
+        const previous = Number(select.value) || 0;
+        select.replaceChildren(...Array.from({ length: count }, (_, i) =>
+            new Option(`Picture ${i + 1} of ${count}`, String(i))));
+        select.value = String(previous < count ? previous : 0);
+        select.hidden = count < 2;
+        const images = Object.keys(this.importImages).length;
+        document.getElementById('importStatus').textContent = images ? `${images} image${images > 1 ? 's' : ''} ready` : '';
+    }
+
+    runImport() {
+        const text = document.getElementById('importCode').value;
+        let results;
+        try {
+            results = importTikZ(text, this.importImages);
+        } catch (err) {
+            this.showToast(`Could not import: ${err.message}`, 'error', 5000);
+            return;
+        }
+        if (!results.length) {
+            this.showToast('No TikZ found. Paste a tikzpicture or \\draw commands.', 'error', 4000);
+            return;
+        }
+        const index = Math.min(Number(document.getElementById('importPicture').value) || 0, results.length - 1);
+        const { project, warnings } = results[index];
+        if (!project.objects.length) {
+            this.showImportWarnings(warnings, 'Nothing could be imported.');
+            return;
+        }
+        if (this.hasUnsavedChanges &&
+                !confirm('You have unsaved changes. Import anyway? (Undo brings the current drawing back.)')) {
+            return;
+        }
+        this.loadProjectData(project, this.importFilename || 'tikz-drawing.json');
+        // The imported drawing has not been saved as a project yet.
+        this.savedDrawing = { content: null, images: [] };
+
+        const shapes = project.objects.filter(o => o.type !== 'TikZCoordinate').length;
+        const points = project.objects.length - shapes;
+        const summary = `Imported ${shapes} object${shapes === 1 ? '' : 's'} and ${points} point${points === 1 ? '' : 's'}.`;
+        if (warnings.length) {
+            this.showImportWarnings(warnings, `${summary} Some TikZ could not be converted:`);
+            document.getElementById('importBtn').hidden = true;
+            document.getElementById('importCancelBtn').textContent = 'Close';
+        } else {
+            this.closeImport();
+            this.showToast(summary, 'success');
+        }
+    }
+
+    showImportWarnings(warnings, title) {
+        document.getElementById('importWarningsTitle').textContent = title;
+        document.getElementById('importWarningList').replaceChildren(...warnings.map(warning =>
+            Object.assign(document.createElement('li'), { textContent: warning })));
+        document.getElementById('importWarnings').hidden = false;
     }
     
 

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>TikZ import tests</title>
+<h1>TikZ import tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/tikz-import.html</code>.</p>
+<p>The importer is a port of <code>tikz2view.py</code>. Both are checked against the same
+  <code>tikz2view/*.expected.json</code> files, so the two converters cannot drift apart.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+
+function load(path, binary = false) {
+    const request = new XMLHttpRequest();
+    request.open('GET', path, false);
+    if (binary) request.overrideMimeType('text/plain; charset=x-user-defined');
+    request.send();
+    if (request.status !== 200 && request.status !== 0) throw new Error(`Could not load ${path}`);
+    return request.responseText;
+}
+
+function pngDataUrl(path) {
+    const raw = load(path, true);
+    let binary = '';
+    for (let i = 0; i < raw.length; i++) binary += String.fromCharCode(raw.charCodeAt(i) & 0xff);
+    return 'data:image/png;base64,' + btoa(binary);
+}
+
+frame.addEventListener('load', () => {
+    const win = frame.contentWindow, doc = frame.contentDocument, app = win.app;
+    const results = document.getElementById('results');
+    const report = [];
+
+    function check(ok, message) {
+        if (!ok) throw new Error(message);
+    }
+
+    function test(name, run) {
+        try {
+            run();
+            report.push('PASS  ' + name);
+        } catch (error) {
+            report.push('FAIL  ' + name + '\n' + error.stack);
+        }
+    }
+
+    // Deep comparison; numbers may differ in the last float digits between Python and JS.
+    function same(a, b, path = '') {
+        if (typeof a === 'number' && typeof b === 'number') {
+            check(Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a)), `${path}: ${a} != ${b}`);
+            return;
+        }
+        if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+            check(a === b, `${path}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`);
+            return;
+        }
+        check(Array.isArray(a) === Array.isArray(b), `${path}: array vs object`);
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const key of keys) same(a[key], b[key], `${path}.${key}`);
+    }
+
+    const images = { 'pic.png': pngDataUrl('tikz2view/pic.png') };
+
+    for (const name of ['editor-export', 'handwritten']) {
+        test(`${name}.tex converts exactly like tikz2view.py`, () => {
+            const expected = JSON.parse(load(`tikz2view/${name}.expected.json`));
+            const [{ project, warnings }] = win.importTikZ(load(`tikz2view/${name}.tex`), images);
+            same(warnings, expected.warnings, 'warnings');
+            same(project, expected.project, 'project');
+        });
+    }
+
+    test('An imported editor export re-exports the same TikZ', () => {
+        const tex = load('tikz2view/editor-export.tex');
+        const [{ project }] = win.importTikZ(tex, images);
+        app.loadProjectData(project);
+        const original = tex.split('\\begin{document}\n')[1].split('\n\\end{document}')[0];
+        const lines = original.split('\n'), again = app.generateTikZ().split('\n');
+        const first = lines.findIndex((line, i) => line !== again[i]);
+        check(first < 0 && lines.length === again.length,
+            `Line ${first + 1} differs:\n  ${lines[first]}\n  ${again[first]}`);
+        check(app.objects.filter(o => o.type === 'region').every(r => app.getRegionRings(r).length),
+            'An imported fill did not resolve against its shapes');
+    });
+
+    test('Arithmetic cannot reach JavaScript', () => {
+        for (const bad of ['constructor(1)', 'alert(1)', '__proto__', 'x', '1 +', '(2']) {
+            let threw = false;
+            try { win.tikzEvalNumber(bad); } catch { threw = true; }
+            check(threw, `Evaluated ${bad}`);
+        }
+        check(Math.abs(win.tikzEvalNumber('2*cos(60)+sqrt(4)^2') - 5) < 1e-12, 'Arithmetic is wrong');
+        check(win.tikzEvalNumber('-2^2') === -4 && win.tikzEvalNumber('7 % 3') === 1, 'Precedence is wrong');
+    });
+
+    test('Bare commands import without a tikzpicture around them', () => {
+        const [{ project, warnings }] = win.importTikZ('\\draw[red, ->] (0,0) -- (2,1);');
+        check(!warnings.length, 'Unexpected warnings: ' + warnings);
+        const segment = project.objects.find(o => o.type === 'TikZSegment');
+        check(segment && segment.color === 'red' && segment.arrowEnd === '->', 'Segment not imported');
+    });
+
+    test('Import dialog: choose a picture, see warnings, undo restores the drawing', () => {
+        app.loadProjectData({ objects: [
+            { type: 'TikZCoordinate', id: 'coord_1', name: 'Q', x: 5, y: 5, showPoint: true }
+        ] });
+        const before = app.objects.length;
+        doc.querySelector('[onclick="app.showImport()"]').click();
+        check(doc.getElementById('importModal').classList.contains('visible'), 'Dialog did not open');
+        const code = doc.getElementById('importCode');
+        code.value = '\\begin{tikzpicture}\\draw (0,0) circle (1);\\end{tikzpicture}\n' +
+            '\\begin{tikzpicture}\\draw (0,0) -- (1,0);\\foreach \\i in {1,2} \\fill (\\i,1) circle (1pt);\\end{tikzpicture}';
+        code.dispatchEvent(new win.Event('input', { bubbles: true }));
+        const select = doc.getElementById('importPicture');
+        check(win.getComputedStyle(select).display !== 'none' && select.options.length === 2, 'Picture choice not offered');
+        select.value = '1';
+        const confirm = win.confirm;
+        win.confirm = () => true;
+        try {
+            doc.getElementById('importBtn').click();
+        } finally {
+            win.confirm = confirm;
+        }
+        check(app.objects.some(o => o.type === 'line') && !app.objects.some(o => o.type === 'circle'),
+            'The second picture was not the one imported');
+        const box = doc.getElementById('importWarnings');
+        check(!box.hidden && box.textContent.includes('\\foreach'), 'Warnings were not listed');
+        const shown = id => win.getComputedStyle(doc.getElementById(id)).display !== 'none';
+        check(!shown('importBtn') && doc.getElementById('importCancelBtn').textContent === 'Close',
+            'Dialog did not switch to Close');
+        check(app.hasUnsavedChanges, 'An imported drawing should count as unsaved');
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        check(!doc.getElementById('importModal').classList.contains('visible'), 'Escape did not close the dialog');
+        app.undo();
+        check(app.objects.length === before && app.getCoordByName('Q'), 'Undo did not restore the previous drawing');
+    });
+
+    test('Clean import closes the dialog and keeps the file name', () => {
+        app.loadProjectData({ objects: [] });
+        app.showImport();
+        app.importFilename = 'figure.json';
+        doc.getElementById('importCode').value = '\\draw (0,0) rectangle (2,1);';
+        doc.getElementById('importBtn').click();
+        check(!doc.getElementById('importModal').classList.contains('visible'), 'Dialog stayed open');
+        check(app.objects.some(o => o.type === 'rect') && app.currentFilename === 'figure.json', 'Import incomplete');
+    });
+
+    results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>

@@ -8,6 +8,7 @@ so converting it must rebuild that drawing. (Loading the result in the editor an
 exporting again reproduces editor-export.tex exactly.)
 """
 
+import json
 import sys
 import unittest
 from collections import Counter
@@ -202,6 +203,27 @@ class HandWrittenTests(unittest.TestCase):
         self.assertTrue(any('"plot"' in w for w in warnings))
 
 
+class GoldenOutputTests(unittest.TestCase):
+    """The editor's Import button (importTikZ in tikz-draw.html) is a port of this script.
+    tests/tikz-import.html checks it against the same *.expected.json files. After an
+    intended change, regenerate them with:  python3 tests/tikz2view/test_tikz2view.py --update"""
+
+    def test_matches_expected_json(self):
+        for name in ('editor-export', 'handwritten'):
+            with self.subTest(name):
+                project, warnings = convert((HERE / f'{name}.tex').read_text(encoding='utf-8'))
+                expected = json.loads((HERE / f'{name}.expected.json').read_text(encoding='utf-8'))
+                self.assertEqual({'warnings': warnings, 'project': project}, expected)
+
+
+def update_expected():
+    for name in ('editor-export', 'handwritten'):
+        project, warnings = convert((HERE / f'{name}.tex').read_text(encoding='utf-8'))
+        (HERE / f'{name}.expected.json').write_text(
+            json.dumps({'warnings': warnings, 'project': project}, indent=1) + '\n', encoding='utf-8')
+        print(f'Updated {name}.expected.json')
+
+
 class SafetyTests(unittest.TestCase):
     def test_expressions_cannot_run_code(self):
         with self.assertRaises(ValueError):
@@ -216,4 +238,7 @@ class SafetyTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if '--update' in sys.argv:
+        update_expected()
+    else:
+        unittest.main()

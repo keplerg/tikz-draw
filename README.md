@@ -303,6 +303,7 @@ The toolbar at the top of the application provides quick access to common operat
 - **📋 Copy** - Copy selected object (disabled when no object selected)
 - **📄 Paste** - Paste from clipboard (disabled when clipboard empty)
 - **📂 Open** - Load a saved project file
+- **📥 Import** - Turn existing TikZ code into an editable drawing
 - **💾 Save** - Save project as JSON file
 - **📤 Export TikZ** - Export as TikZ code
 
@@ -317,6 +318,18 @@ Save your work as JSON files to continue editing later:
 - **Open**: Click "Open" to load a previously saved project
 
 Project files preserve all objects, positions, styles, and view settings.
+
+## Importing TikZ
+
+Click **Import** and paste a `tikzpicture` (or a whole `.tex` file, or just a few `\draw` commands), or choose **Open .tex…**. The drawing replaces the current one, and Undo brings the old one back. If the file holds several pictures, pick one from the list. For `\includegraphics`, also choose the image files with **Images…**.
+
+Import understands everything TikZ Draw exports, so an exported drawing comes back exactly as it was, plus common hand-written TikZ: polar and relative coordinates, `(A |- B)`, simple `calc`, `rotate`, `scale`, `\definecolor` and `red!30` colour mixes, and simple `\def`/`\newcommand` macros. Anything it cannot represent, such as `\foreach` loops or decorations, is listed after the import instead of being dropped silently.
+
+The same converter is available from the command line as `tikz2view.py`:
+
+```bash
+python3 tikz2view.py figure.tex -o figure.json
+```
 
 ## Tips
 
