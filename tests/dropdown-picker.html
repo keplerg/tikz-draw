@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Dropdown picker tests</title>
+<h1>Dropdown picker tests</h1>
+<p>From the repository root, run <code>python -m http.server 8000</code> and open
+  <code>http://localhost:8000/tests/dropdown-picker.html</code>.</p>
+<p>Long native dropdowns must open on click (after the button is released), not on press,
+  so the release of the opening click cannot pick an option. The native list itself cannot
+  be shown in an automated test; <code>showPicker()</code> is recorded instead.</p>
+<pre id="results">Loading editor…</pre>
+<iframe id="editor" width="1000" height="600" title="Editor under test"></iframe>
+<script>
+const frame = document.getElementById('editor');
+frame.addEventListener('load', () => {
+    const win = frame.contentWindow, doc = frame.contentDocument, app = win.app;
+    const results = document.getElementById('results');
+    const report = [];
+
+    function check(ok, message) {
+        if (!ok) throw new Error(message);
+    }
+
+    function test(name, run) {
+        try {
+            run();
+            report.push('PASS  ' + name);
+        } catch (error) {
+            report.push('FAIL  ' + name + '\n' + error.stack);
+        }
+    }
+
+    // Record showPicker() calls instead of opening a native list.
+    let opened = [];
+    win.HTMLSelectElement.prototype.showPicker = function () { opened.push(this); };
+
+    // A press-and-release on `target`: returns whether the press was allowed to act natively.
+    function clickWith(target, { pointerType = 'mouse', button = 0 } = {}) {
+        target.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerType, button }));
+        const native = target.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button }));
+        target.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true, cancelable: true, button }));
+        target.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, button }));
+        return native;
+    }
+
+    // A circle with many custom colours, selected so its properties panel shows.
+    const customColors = {};
+    for (let i = 0; i < 40; i++) customColors['shade' + i] = '#' + (i * 6).toString(16).padStart(2, '0') + '3070';
+    app.loadProjectData({ customColors, objects: [
+        { type: 'TikZCoordinate', id: 'coord_1', name: 'A', x: 0, y: 0 },
+        { type: 'TikZCircle', id: 'circle_2', center: 'A', center2: 'A', radius: 1, color: 'black',
+          thickness: 'thin', lineStyle: 'solid', fill: 'none', fillOpacity: 1, pattern: 'none' }
+    ] });
+    app.selectedObjects = [app.objects.find(o => o.type === 'circle')];
+    app.updatePropertiesPanel();
+    const colorSelect = () => doc.querySelector('#propertiesPanel select[data-prop="color"]');
+
+    test('A long dropdown opens on click, not on press', () => {
+        const select = colorSelect();
+        check(select.options.length > 40, 'Expected a long colour list');
+        opened = [];
+        const native = clickWith(select);
+        check(!native, 'The press still opened the native list');
+        check(doc.activeElement === select, 'The dropdown was not focused');
+        check(opened.length === 1 && opened[0] === select, 'The click did not open the list once');
+    });
+
+    test('Choosing an option still updates the object', () => {
+        const select = colorSelect();
+        select.value = 'shade30';
+        select.dispatchEvent(new win.Event('change', { bubbles: true }));
+        check(app.selectedObjects[0].color === 'shade30', 'The chosen colour was not applied');
+    });
+
+    test('Touch, right-click and disabled dropdowns keep their native behaviour', () => {
+        const select = colorSelect();
+        opened = [];
+        check(clickWith(select, { pointerType: 'touch' }) && !opened.length, 'Touch was intercepted');
+        check(clickWith(select, { button: 2 }) && !opened.length, 'Right-click was intercepted');
+        select.disabled = true;
+        check(clickWith(select) && !opened.length, 'A disabled dropdown was opened');
+        select.disabled = false;
+    });
+
+    test('Other elements and stray clicks are not affected', () => {
+        opened = [];
+        const button = doc.querySelector('[onclick="app.showExport()"]');
+        button.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
+        check(button.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })),
+            'A button press was intercepted');
+        app.closeExport();
+        // A click without a press on the dropdown (e.g. from a label) does not open it.
+        colorSelect().dispatchEvent(new win.MouseEvent('click', { bubbles: true, button: 0 }));
+        check(!opened.length, 'A click without a press opened the list');
+    });
+
+    test('Dropdowns created later are covered too', () => {
+        app.selectedObjects = [app.objects.find(o => o.type === 'circle')];
+        app.updatePropertiesPanel();
+        const select = doc.querySelector('#propertiesPanel select[data-prop="pattern"]');
+        opened = [];
+        check(!clickWith(select) && opened[0] === select, 'A re-rendered dropdown was not covered');
+    });
+
+    results.dataset.status = report.every(line => line.startsWith('PASS')) ? 'passed' : 'failed';
+    results.textContent = report.join('\n');
+});
+frame.src = '../tikz-draw.html';
+</script>
+</html>

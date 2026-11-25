@@ -4582,7 +4582,38 @@ class TikZDrawApp {
     // Setup
     // ========================================================================
     
+    // Native dropdowns on Linux (and macOS) open on mouse press and pick whatever option
+    // is under the pointer on release. A long list (many custom colours, arrow tips) can't
+    // open centred on the current value, so the release of the opening click lands on
+    // another option. Open dropdowns on click instead, after the button is up.
+    setupDropdownPicker() {
+        if (typeof HTMLSelectElement.prototype.showPicker !== 'function') return;  // keep native behaviour
+        const pickable = target => target instanceof HTMLSelectElement && !target.disabled &&
+            !target.multiple && target.size <= 1;
+        let pointerType = 'mouse', pending = null;
+        // Pointer events come first and say whether this is a mouse; touch keeps its own picker.
+        document.addEventListener('pointerdown', e => { pointerType = e.pointerType; }, true);
+        document.addEventListener('mousedown', e => {
+            pending = null;
+            if (e.button !== 0 || pointerType !== 'mouse' || !pickable(e.target)) return;
+            e.preventDefault();  // don't open on press
+            e.target.focus();
+            pending = e.target;
+        }, true);
+        document.addEventListener('click', e => {
+            if (e.target !== pending) return;
+            pending = null;
+            try {
+                e.target.showPicker();
+            } catch {
+                // Not allowed here (e.g. cross-origin frame): the dropdown stays focused for the keyboard.
+            }
+        }, true);
+    }
+
     setupEventListeners() {
+        this.setupDropdownPicker();
+
         // Window resize
         window.addEventListener('resize', () => this.resize());
 
