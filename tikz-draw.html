@@ -334,6 +334,16 @@
             gap: 8px;
         }
         
+        .opacity-row { display: flex; align-items: center; gap: 8px; }
+        .opacity-row input[type="range"] {
+            flex: 1; min-width: 0; width: auto; padding: 0;
+            background: none; border: none; accent-color: #61afef;
+        }
+        .opacity-value {
+            flex: none; width: 36px; text-align: right;
+            font-size: 12px; color: #e0e0e0; font-variant-numeric: tabular-nums;
+        }
+
         .checkbox-row input { accent-color: #61afef; width: auto; flex: none; margin: 0; }
         label.checkbox-row { cursor: pointer; font-size: 12px; }
         
@@ -8403,6 +8413,16 @@ class TikZDrawApp {
         }
     }
     
+    // Opacity as a slider with its percentage on the right (fills, images).
+    renderOpacitySlider(value, propertyName) {
+        const opacity = Number.isFinite(value) ? value : 1;
+        return `<div class="property-input opacity-row">
+            <input type="range" min="0" max="1" step="0.01" data-prop="${propertyName}" value="${opacity}"
+                   aria-label="Opacity">
+            <output class="opacity-value">${Math.round(opacity * 100)}%</output>
+        </div>`;
+    }
+
     renderColorSelect(currentColor, propertyName, allowNone = propertyName === 'fill') {
         let options = allowNone ? [`<option value="none" ${currentColor === "none" ? 'selected' : ''}>none</option>`] : [];
         options += Object.keys(TIKZ_COLORS).map(c => 
@@ -8646,7 +8666,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${circle.fillOpacity}"></div>
+                ${this.renderOpacitySlider(circle.fillOpacity, 'fillOpacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
@@ -8731,7 +8751,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${rect.fillOpacity}"></div>
+                ${this.renderOpacitySlider(rect.fillOpacity, 'fillOpacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
@@ -8775,7 +8795,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${path.fillOpacity}"></div>
+                ${this.renderOpacitySlider(path.fillOpacity, 'fillOpacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
@@ -8810,7 +8830,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${region.fillOpacity}"></div>
+                ${this.renderOpacitySlider(region.fillOpacity, 'fillOpacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
@@ -8867,7 +8887,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${bezier.fillOpacity}"></div>
+                ${this.renderOpacitySlider(bezier.fillOpacity, 'fillOpacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Pattern:</span>
@@ -8979,13 +8999,7 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Opacity:</span>
-                <div class="property-input">
-                    <input type="range" min="0" max="1" step="0.05"
-                           data-prop="opacity" value="${img.opacity}" id="opacitySlider">
-                    <div style="text-align:center;font-size:10px;color:#888;" id="opacityValue">
-                        ${Math.round(img.opacity * 100)}%
-                    </div>
-                </div>
+                ${this.renderOpacitySlider(img.opacity, 'opacity')}
             </div>
             <div class="property-row">
                 <span class="property-label">Anchor:</span>
@@ -9006,15 +9020,16 @@ class TikZDrawApp {
             <div class="property-row">
                 <span class="property-label">Preview:</span>
                 <div class="property-input" style="text-align:center;">
-                    <img src="${img.imageData}" style="max-width:100%;max-height:100px;border:1px solid #404040;border-radius:3px;">
+                    ${img.imageData ? `<img src="${img.imageData}" alt="" style="max-width:100%;max-height:100px;border:1px solid #404040;border-radius:3px;">` : '<span style="font-size:10px;color:#888;">None</span>'}
                 </div>
             </div>
             <div class="property-row">
                 <span class="property-label">Size:</span>
                 <div class="property-input" style="font-size:10px;color:#888;">
+                    ${!img.imageData ? 'No image data (file not provided on import)' : `
                     ${img.cachedImage ? `${img.cachedImage.naturalWidth}×${img.cachedImage.naturalHeight}px` : 'Loading...'}
                     <br>
-                    ~${(img.imageData.length / 1024).toFixed(1)}KB in project
+                    ~${(img.imageData.length / 1024).toFixed(1)}KB in project`}
                 </div>
             </div>
         `;
@@ -9130,16 +9145,12 @@ class TikZDrawApp {
             });
         }
 
-        // Update opacity display
-        const opacitySlider = panel.querySelector('#opacitySlider');
-        if (opacitySlider) {
-            opacitySlider.addEventListener('input', () => {
-                const opacityValue = panel.querySelector('#opacityValue');
-                if (opacityValue) {
-                    opacityValue.textContent = Math.round(parseFloat(opacitySlider.value) * 100) + '%';
-                }
+        // Opacity sliders show their value while dragging; the change applies on release.
+        panel.querySelectorAll('.opacity-row input[type="range"]').forEach(slider => {
+            slider.addEventListener('input', () => {
+                slider.nextElementSibling.textContent = Math.round(parseFloat(slider.value) * 100) + '%';
             });
-        }
+        });
     }
 
     updateLabelPreview() {
