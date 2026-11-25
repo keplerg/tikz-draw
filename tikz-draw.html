@@ -334,7 +334,8 @@
             gap: 8px;
         }
         
-        .checkbox-row input { accent-color: #61afef; }
+        .checkbox-row input { accent-color: #61afef; width: auto; flex: none; margin: 0; }
+        label.checkbox-row { cursor: pointer; font-size: 12px; }
         
         /* Object List */
         .object-list-container {
@@ -1657,11 +1658,27 @@ class TikZBezier extends TikZObject {
         this.lineStyle = 'solid';
         this.arrowEnd = 'none';
         this.arrowSize = 1.0;
+        // Fill settings apply only while the curve is closed; arrows only while open.
+        this.fill = 'none';
+        this.fillOpacity = 1.0;
+        this.pattern = 'none';
         this.name = this.id.replace('bezier_', 'B');
     }
 
+    get filled() {
+        return this.closed && this.fill && this.fill !== 'none';
+    }
+
     toTikZ() {
-        const opts = strokeOptions(this);
+        const opts = strokeOptions(this.closed ? { ...this, arrowEnd: 'none' } : this);
+        let cmd = '\\draw';
+        if (this.filled) {
+            cmd = '\\filldraw';
+            const patterned = this.pattern && this.pattern !== 'none';
+            opts.push(patterned ? `pattern color=${this.fill}` : `fill=${this.fill}`);
+            if (this.fillOpacity < 1) opts.push(`fill opacity=${this.fillOpacity}`);
+            if (patterned) opts.push(`pattern=${this.pattern}`);
+        }
 
         let optStr = opts.length ? `[${opts.join(', ')}]` : '';
 
@@ -1669,9 +1686,9 @@ class TikZBezier extends TikZObject {
         const ctrl1 = app.getCoordByName(this.control1);
         const ctrl2 = app.getCoordByName(this.control2);
         if (ctrl1 && ctrl2) {
-            return `  \\draw${optStr} (${this.from}) .. controls ${tikzPoint(ctrl1, 2)} and ${tikzPoint(ctrl2, 2)} .. (${this.to})${this.closed ? ' -- cycle' : ''};`;
+            return `  ${cmd}${optStr} (${this.from}) .. controls ${tikzPoint(ctrl1, 2)} and ${tikzPoint(ctrl2, 2)} .. (${this.to})${this.closed ? ' -- cycle' : ''};`;
         }
-        return `  \\draw${optStr} (${this.from}) -- (${this.to});`;
+        return `  ${cmd}${optStr} (${this.from}) -- (${this.to})${this.closed ? ' -- cycle' : ''};`;
     }
 
     getSubObjects() {
@@ -5695,6 +5712,19 @@ class TikZDrawApp {
         const pc2 = this.worldToScreen(ctrl2.x, ctrl2.y);
         const p2 = this.worldToScreen(to.x, to.y);
 
+        if (bezier.filled) {
+            const patterned = bezier.pattern && bezier.pattern !== 'none';
+            const color = this.getColor(bezier.fill);
+            ctx.fillStyle = (patterned && this.createCanvasPattern(bezier.pattern, color)) || color;
+            ctx.globalAlpha = bezier.fillOpacity;
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.bezierCurveTo(pc1.x, pc1.y, pc2.x, pc2.y, p2.x, p2.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
         ctx.strokeStyle = this.getColor(bezier.color);
         ctx.fillStyle = this.getColor(bezier.color);
         ctx.lineWidth = this.getThickness(bezier.thickness);
@@ -6950,7 +6980,10 @@ class TikZDrawApp {
             </div>
             <div class="property-row">
                 <span class="property-label">Boundary:</span>
-                <label class="property-input" style="font-weight:normal;text-transform:none;font-size:11px;"><input type="checkbox" data-prop="closed" ${bezier.closed ? 'checked' : ''}> Close curve with a line</label>
+                <label class="property-input checkbox-row">
+                    <input type="checkbox" data-prop="closed" ${bezier.closed ? 'checked' : ''}>
+                    <span>Close curve with a line</span>
+                </label>
             </div>
             <div class="property-row">
                 <span class="property-label">Color:</span>
@@ -6964,7 +6997,19 @@ class TikZDrawApp {
                 <span class="property-label">Style:</span>
                 <div class="property-input">${this.renderLineStyleSelect(bezier.lineStyle, 'lineStyle')}</div>
             </div>
-            ${this.renderArrowProperties(bezier)}
+            ${bezier.closed ? `
+            <div class="property-row">
+                <span class="property-label">Fill:</span>
+                <div class="property-input">${this.renderColorSelect(bezier.fill, 'fill')}</div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Opacity:</span>
+                <div class="property-input"><input type="number" step="0.1" min="0" max="1" data-prop="fillOpacity" value="${bezier.fillOpacity}"></div>
+            </div>
+            <div class="property-row">
+                <span class="property-label">Pattern:</span>
+                <div class="property-input">${this.renderPatternSelect(bezier.pattern, 'pattern')}</div>
+            </div>` : this.renderArrowProperties(bezier)}
         `;
     }
 
@@ -7314,6 +7359,8 @@ class TikZDrawApp {
         }
         this.render();
         this.updateObjectList();
+        // Closing a Bezier swaps its arrow fields for fill fields (and back).
+        if (prop === 'closed' && selectedObj instanceof TikZBezier) this.updatePropertiesPanel();
     }
     
     // Bring the family/tip/size controls in line with the object's stored arrow.
@@ -8315,7 +8362,8 @@ class TikZDrawApp {
 
         // Check if any objects use patterns
         const usesPatterns = this.objects.some(o =>
-            (o instanceof TikZCircle || o instanceof TikZRectangle || o instanceof TikZPath) &&
+            (o instanceof TikZCircle || o instanceof TikZRectangle || o instanceof TikZPath ||
+             (o instanceof TikZBezier && o.filled)) &&
             o.pattern && o.pattern !== 'none'
         );
 
@@ -8626,6 +8674,9 @@ class TikZDrawApp {
             data.lineStyle = obj.lineStyle;
             data.arrowEnd = obj.arrowEnd;
             data.arrowSize = obj.arrowSize;
+            data.fill = obj.fill;
+            data.fillOpacity = obj.fillOpacity;
+            data.pattern = obj.pattern;
             data.expanded = obj.expanded;
             data.name = obj.name;
         } else if (obj instanceof TikZLabel) {
@@ -8909,6 +8960,9 @@ class TikZDrawApp {
                     obj.lineStyle = data.lineStyle;
                     obj.arrowEnd = data.arrowEnd || 'none';
                     obj.arrowSize = data.arrowSize || 1.0;
+                    obj.fill = data.fill || 'none';
+                    obj.fillOpacity = data.fillOpacity ?? 1.0;
+                    obj.pattern = data.pattern || 'none';
                     obj.name = data.name || obj.name;
                     break;
                 case 'TikZLabel':

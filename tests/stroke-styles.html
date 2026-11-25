@@ -243,6 +243,41 @@ frame.addEventListener('load', () => {
         check(arrowControl('arrowType').value === 'Kite' && object.arrowEnd === '-Kite', 'Geometric family forgot Kite');
     });
 
+    test('Closing a Bezier swaps arrow fields for fill fields and exports the fill', () => {
+        const panelControl = prop => doc.querySelector('#propertiesPanel [data-prop="' + prop + '"]');
+        const setProp = (prop, value) => {
+            const el = panelControl(prop);
+            if (el.type === 'checkbox') el.checked = value; else el.value = value;
+            el.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+        };
+        const bezierDraw = () => app.generateTikZ().split('\n').find(line => line.includes('controls')) || '';
+        let [curve] = open([{ ...shapes[7], arrowEnd: '-Stealth' }]);
+        selectShape(curve);
+        check(panelControl('arrowType') && !panelControl('fill'), 'Open curve should show arrow fields only');
+
+        setProp('closed', true);
+        check(!panelControl('arrowType') && panelControl('fill') && panelControl('fillOpacity') && panelControl('pattern'),
+            'Closed curve should show Fill, Opacity and Pattern instead of arrows');
+        setProp('fill', 'red');
+        setProp('fillOpacity', '0.5');
+        setProp('pattern', 'north east lines');
+        let draw = bezierDraw();
+        check(/^\s*\\filldraw/.test(draw) && draw.includes('pattern color=red') && draw.includes('fill opacity=0.5') &&
+            draw.includes('pattern=north east lines') && !draw.includes('Stealth') && draw.includes('-- cycle'),
+            'Closed fill export is wrong: ' + draw);
+
+        app.loadProjectData(JSON.parse(JSON.stringify(app.projectDrawing())));
+        curve = app.objects.find(o => o.type === 'bezier');
+        check(curve.fill === 'red' && curve.fillOpacity === 0.5 && curve.pattern === 'north east lines',
+            'Round trip lost Bezier fill settings');
+
+        selectShape(curve);
+        setProp('closed', false);
+        check(panelControl('arrowType')?.value === 'Stealth' && !panelControl('fill'), 'Reopening should restore the arrow fields');
+        draw = bezierDraw();
+        check(/^\s*\\draw/.test(draw) && !draw.includes('fill') && draw.includes('Stealth'), 'Open curve export kept fill: ' + draw);
+    });
+
     test('A disabled arrow retains its placement across a project round trip', () => {
         const [line] = open([shapes[0]]);
         selectShape(line);
